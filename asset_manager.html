@@ -1,0 +1,1933 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FBX 資產管理器</title>
+<style>
+  :root{
+    --bg:#0E0F13; --panel:#15161B; --panel-2:#1A1C22; --line:#2A2D36;
+    --text:#D8D6D0; --muted:#8A8F9B; --dim:#5A5F6B;
+    --accent:#F5A623; --accent-dim:#5a4a26; --bad:#E2554E; --good:#7BE495;
+    --sans:'IBM Plex Sans','Noto Sans TC',system-ui,sans-serif;
+    --mono:'IBM Plex Mono',ui-monospace,monospace;
+  }
+  *{ box-sizing:border-box; }
+  html,body{ height:100%; margin:0; }
+  body{
+    background:var(--bg); color:var(--text); font-family:var(--sans);
+    font-size:13px; display:flex; flex-direction:column; overflow:hidden;
+  }
+  button{ font-family:var(--sans); }
+
+  /* ── 頂列 ── */
+  #top{
+    flex:0 0 auto; display:flex; align-items:center; gap:14px;
+    padding:0 16px; height:48px; background:var(--panel);
+    border-bottom:1px solid var(--line);
+  }
+  #top .brand{ display:flex; align-items:center; gap:9px; font-weight:600; }
+  #top .dot{ width:11px; height:11px; border-radius:3px; background:var(--accent); }
+  #top .sub{ color:var(--muted); font-size:11.5px; }
+  .spacer{ flex:1 1 auto; }
+  .tbtn{
+    background:var(--panel-2); border:1px solid var(--line); color:var(--text);
+    border-radius:6px; padding:6px 13px; font-size:12px; cursor:pointer;
+    display:inline-flex; align-items:center; gap:6px; white-space:nowrap;
+  }
+  .tbtn:hover{ border-color:var(--accent); }
+  .tbtn.primary{ background:var(--accent); color:#1a1206; border-color:var(--accent); font-weight:600; }
+  .tbtn.primary:hover{ filter:brightness(1.07); }
+  .tbtn:disabled{ opacity:.4; cursor:default; }
+  .tbtn.sm{ padding:4px 10px; font-size:11.5px; }
+  .tbtn.on{ background:var(--accent-dim); border-color:var(--accent); color:var(--text); }
+  #search{
+    background:var(--panel-2); border:1px solid var(--line); color:var(--text);
+    border-radius:6px; padding:6px 10px; font-size:12px; width:190px; font-family:var(--sans);
+  }
+  #search:focus{ outline:none; border-color:var(--accent); }
+  select.sel{
+    background:var(--panel-2); border:1px solid var(--line); color:var(--text);
+    border-radius:6px; padding:6px 8px; font-size:12px;
+  }
+  .stat{ color:var(--muted); font-size:11.5px; font-family:var(--mono); }
+  .dirty-dot{ color:var(--accent); margin-left:5px; display:none; }
+  .dirty-dot.on{ display:inline; }
+  .stat b{ color:var(--text); }
+  .chk{ display:inline-flex; align-items:center; gap:6px; color:var(--muted); font-size:11.5px; cursor:pointer; user-select:none; }
+  .chk input{ accent-color:var(--accent); }
+
+  /* ── 主體 ── */
+  #body{ flex:1 1 auto; display:flex; min-height:0; }
+  #gridCol{ flex:1 1 auto; display:flex; flex-direction:column; min-width:0; min-height:0; }
+  #gridBar{
+    flex:0 0 auto; display:none; align-items:center; gap:10px;
+    padding:8px 16px; border-bottom:1px solid var(--line); background:var(--panel);
+  }
+  #gridBar.on{ display:flex; }
+  #gridBar #search{ flex:0 1 220px; min-width:120px; }
+  #gridWrap{ flex:1 1 auto; overflow:auto; min-width:0; min-height:0; position:relative; }
+  #grid{
+    display:grid; gap:14px; padding:16px;
+    grid-template-columns:repeat(auto-fill,minmax(186px,1fr));
+    align-content:start;
+  }
+  .card{
+    background:var(--panel); border:1px solid var(--line); border-radius:9px;
+    overflow:hidden; cursor:pointer; display:flex; flex-direction:column;
+    transition:border-color .12s, transform .12s;
+  }
+  .card:hover{ border-color:#3c4150; }
+  .card.sel{ border-color:var(--accent); }
+  .thumb{
+    position:relative; aspect-ratio:1/1; background:
+      repeating-conic-gradient(#16171c 0% 25%, #1b1d23 0% 50%) 0 0 / 22px 22px;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .thumb img{ width:100%; height:100%; object-fit:contain; display:block; }
+  .thumb .ph{ color:var(--dim); font-size:11px; font-family:var(--mono); }
+  .thumb .spin{
+    width:22px; height:22px; border:2px solid var(--line); border-top-color:var(--accent);
+    border-radius:50%; animation:sp .8s linear infinite;
+  }
+  @keyframes sp{ to{ transform:rotate(360deg); } }
+  .thumb .err{ color:var(--bad); font-size:11px; font-family:var(--mono); text-align:center; padding:8px; }
+  .meta{ padding:8px 9px 9px; display:flex; flex-direction:column; gap:5px; }
+  .cname{ font-size:12px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .cpath{ font-size:10.5px; color:var(--dim); font-family:var(--mono); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .badges{ display:flex; flex-wrap:wrap; gap:4px; margin-top:1px; }
+  .badge{
+    font-family:var(--mono); font-size:9.5px; color:var(--muted);
+    background:var(--panel-2); border:1px solid var(--line); border-radius:4px; padding:1px 5px;
+    white-space:nowrap;
+  }
+  .badge.tex{ color:var(--good); border-color:#2f4a36; }
+  .badge.miss{ color:var(--bad); border-color:#4a2f2f; }
+  .badge.pass{ color:#0e1409; background:var(--good); border-color:var(--good); font-weight:600; }
+  .badge.fail{ color:#160b0b; background:var(--bad); border-color:var(--bad); font-weight:600; }
+  .badge.new{ color:#0e1409; background:#8fd0ff; border-color:#8fd0ff; font-weight:600; }
+  .badge.chg{ color:var(--accent); border-color:var(--accent); }
+  .card.r-fail{ border-color:var(--bad); }
+  .card.r-chg{ border-color:var(--accent); }
+
+  /* 驗收控制列 */
+  #reviewFilters{
+    display:none; align-items:center; gap:8px; flex-wrap:wrap;
+    padding:7px 16px; border-bottom:1px solid var(--line); background:var(--panel-2);
+  }
+  #reviewSummary{ display:flex; gap:5px; flex-wrap:wrap; }
+  .rp{ font-family:var(--mono); font-size:10.5px; border-radius:4px; padding:2px 8px; border:1px solid var(--line); color:var(--muted); }
+  .rp.ok{ color:var(--good); border-color:#2f4a36; }
+  .rp.bad{ color:var(--bad); border-color:#4a2f2f; }
+  .rp.chg{ color:var(--accent); border-color:var(--accent-dim); }
+  .rp.new{ color:#8fd0ff; border-color:#2f3f4a; }
+  .rp.muted{ color:var(--dim); }
+
+  /* 預覽:驗收區 */
+  .rv-pass{ color:var(--good); font-size:12.5px; font-weight:600; }
+  .rv-fail{ color:var(--bad); font-size:12.5px; font-weight:600; }
+  .rv-fail ul{ margin:5px 0 0; padding-left:18px; font-weight:400; color:var(--text); font-size:11.5px; line-height:1.6; }
+  .rv-new{ color:#8fd0ff; font-size:12px; margin-top:6px; }
+  .rv-same{ color:var(--muted); font-size:11.5px; margin-top:6px; }
+  .rv-muted{ color:var(--dim); font-size:11.5px; }
+  .rv-chg-title{ color:var(--accent); font-size:11.5px; margin:8px 0 4px; }
+  table.rv-diff{ width:100%; border-collapse:collapse; font-size:11px; }
+  table.rv-diff th{ text-align:left; color:var(--muted); font-weight:500; border-bottom:1px solid var(--line); padding:3px 4px; }
+  table.rv-diff td{ padding:3px 4px; border-bottom:1px solid #1f2128; font-family:var(--mono); }
+  table.rv-diff td.up{ color:#E6B450; }
+  table.rv-diff td.down{ color:#7BE495; }
+
+  /* 規格 modal */
+  #specModal{
+    display:none; position:fixed; inset:0; z-index:60;
+    background:rgba(6,7,10,.6); align-items:center; justify-content:center;
+  }
+  #specModal.open{ display:flex; }
+  .modal-card{ width:460px; max-width:92vw; background:var(--panel); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+  .modal-head{ display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border-bottom:1px solid var(--line); font-weight:600; }
+  .modal-body{ padding:16px; display:flex; flex-direction:column; gap:11px; }
+  .modal-foot{ display:flex; justify-content:flex-end; gap:9px; padding:12px 16px; border-top:1px solid var(--line); }
+  .sp-row{ display:flex; align-items:center; justify-content:space-between; gap:10px; font-size:12.5px; color:var(--text); }
+  .sp-row.sp-col{ flex-direction:column; align-items:stretch; gap:5px; }
+  .sp-row.sp-toggle{ justify-content:flex-start; gap:8px; }
+  .sp-grid{ display:grid; grid-template-columns:1fr 1fr; gap:9px; }
+  .num2{ width:120px; background:var(--panel-2); border:1px solid var(--line); color:var(--text); border-radius:5px; padding:5px 8px; font-family:var(--mono); font-size:12px; }
+  .num2.wide{ width:100%; }
+  .num2:focus{ outline:none; border-color:var(--accent); }
+  .sp-hint{ font-size:11px; color:var(--dim); line-height:1.6; }
+  #empty{
+    position:absolute; inset:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:16px; text-align:center; padding:30px;
+  }
+  #empty .big{ font-size:15px; color:var(--text); }
+  #empty .hint{ color:var(--muted); max-width:440px; line-height:1.7; font-size:12px; }
+  #empty .warn{ color:var(--dim); font-size:11px; font-family:var(--mono); }
+
+  /* ── 預覽面板 ── */
+  #preview{
+    flex:0 0 0; width:0; overflow:hidden; background:var(--panel);
+    border-left:1px solid var(--line); display:flex; flex-direction:column;
+    transition:width .16s ease, flex-basis .16s ease; position:relative;
+  }
+  #preview.open{ flex:0 0 520px; width:520px; min-width:340px; }
+  #preview.dragging{ transition:none; }               /* 拖曳時關掉過場,避免延遲感 */
+  #preview.max{
+    position:fixed; top:48px; left:0; right:0; bottom:0; width:auto !important;
+    flex:none !important; z-index:40; border-left:none; transition:none;
+  }
+  #preview.max #pvVpWrap{ flex:1 1 auto !important; height:auto !important; }
+  #preview.max #pvBody{ display:none; }
+  #preview.max .grip-x, #preview.max .grip-y{ display:none; }
+
+  /* 寬度分隔條(預覽左緣) */
+  .grip-x{
+    position:absolute; left:-3px; top:0; bottom:0; width:8px; cursor:col-resize; z-index:6;
+  }
+  .grip-x::after{
+    content:''; position:absolute; left:3px; top:0; bottom:0; width:2px; background:transparent;
+  }
+  .grip-x:hover::after, .grip-x.drag::after{ background:var(--accent); }
+
+  /* 高度分隔條(viewport 下方) */
+  .grip-y{
+    flex:0 0 7px; height:7px; cursor:row-resize; position:relative; background:var(--panel);
+    border-bottom:1px solid var(--line);
+  }
+  .grip-y::after{
+    content:''; position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+    width:34px; height:2px; background:var(--line); border-radius:2px;
+  }
+  .grip-y:hover::after, .grip-y.drag::after{ background:var(--accent); }
+
+  #pvHead{
+    flex:0 0 auto; display:flex; align-items:center; gap:10px;
+    padding:10px 14px; border-bottom:1px solid var(--line);
+  }
+  #pvName{ font-weight:600; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #pvVpWrap{ flex:0 0 auto; height:340px; position:relative; background:#101116; }
+  #pvCanvas{ position:absolute; inset:0; width:100%; height:100%; display:block; }
+  #pvOverlay{
+    position:absolute; left:0; right:0; bottom:0; display:flex; align-items:center; gap:8px;
+    padding:8px 10px; background:linear-gradient(transparent,rgba(8,9,12,.78));
+  }
+  .ibtn{
+    background:rgba(26,28,34,.85); border:1px solid var(--line); color:var(--text);
+    border-radius:6px; padding:4px 9px; font-size:11px; cursor:pointer;
+  }
+  .ibtn:hover{ border-color:var(--accent); }
+  .ibtn.on{ background:var(--accent-dim); border-color:var(--accent); }
+  #pvTransport{
+    flex:0 0 auto; display:flex; align-items:center; gap:9px;
+    padding:8px 12px; border-bottom:1px solid var(--line); background:var(--panel-2);
+  }
+  #pvTransport .tc{ font-family:var(--mono); font-size:11px; color:var(--muted); white-space:nowrap; }
+  #pvSeek{ flex:1 1 auto; min-width:0; accent-color:var(--accent); cursor:pointer; }
+  #pvClip{
+    background:var(--panel); border:1px solid var(--line); color:var(--text);
+    border-radius:6px; padding:3px 6px; font-size:11px; max-width:130px;
+  }
+  #pvBody{ flex:1 1 auto; overflow:auto; padding:14px; min-height:0; }
+  .sec{ margin-bottom:16px; }
+  .sec h4{
+    margin:0 0 8px; font-size:10.5px; letter-spacing:.09em; text-transform:uppercase;
+    color:var(--muted); font-weight:600; display:flex; align-items:center; gap:8px;
+  }
+  .sec h4 .h4hint{ text-transform:none; letter-spacing:0; color:var(--dim); font-weight:400; font-size:10px; }
+  .kv{ display:flex; justify-content:space-between; gap:10px; padding:3px 0; font-size:12px; border-bottom:1px solid #1f2128; }
+  .kv .k{ color:var(--muted); }
+  .kv .v{ font-family:var(--mono); color:var(--text); text-align:right; word-break:break-all; }
+
+  /* 材質 / 貼圖槽 */
+  .matblk{ border:1px solid var(--line); border-radius:8px; padding:9px 9px 10px; margin-bottom:10px; background:var(--panel-2); }
+  .matblk .mh{ display:flex; align-items:center; gap:7px; margin-bottom:8px; }
+  .matblk .mn{ font-size:11.5px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
+  .matblk .mt{ flex:0 0 auto; font-size:9px; font-family:var(--mono); color:var(--muted); border:1px solid var(--line); border-radius:4px; padding:1px 5px; }
+  .slots{ display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }
+  .slot{ display:flex; flex-direction:column; align-items:center; gap:4px; }
+  .sw2{
+    width:100%; aspect-ratio:1/1; border-radius:6px; border:1px dashed var(--line);
+    background:var(--panel); display:flex; align-items:center; justify-content:center;
+    cursor:pointer; overflow:hidden; position:relative; transition:border-color .12s;
+  }
+  .sw2:hover{ border-color:var(--accent); }
+  .sw2.has{ border-style:solid; }
+  .sw2 img{ width:100%; height:100%; object-fit:cover; display:block; }
+  .sw2 .plus{ color:var(--dim); font-size:17px; line-height:1; }
+  .sw2 .clr{
+    position:absolute; top:2px; right:2px; width:15px; height:15px; padding:0;
+    background:rgba(8,9,12,.72); border:none; color:#fff; border-radius:4px;
+    font-size:11px; line-height:15px; cursor:pointer;
+  }
+  .sw2 .clr:hover{ background:var(--bad); }
+  .slot .sl{ font-size:9.5px; color:var(--muted); }
+  .miss-note{ color:var(--bad); font-size:11px; font-family:var(--mono); line-height:1.6; margin-top:4px; }
+
+  /* 貼圖診斷 */
+  .diag-line{ display:flex; flex-wrap:wrap; gap:5px; margin-bottom:8px; }
+  .dpill{ font-family:var(--mono); font-size:10px; border-radius:4px; padding:2px 7px; border:1px solid var(--line); }
+  .dpill.ok{ color:var(--good); border-color:#2f4a36; }
+  .dpill.emb{ color:var(--muted); }
+  .dpill.bad{ color:var(--bad); border-color:#4a2f2f; }
+  .dpill.warn{ color:#E6B450; border-color:#4a4129; }
+  .diag-ok{ color:var(--good); font-size:11.5px; }
+  .diag-block{ border-left:2px solid var(--bad); padding:5px 0 5px 9px; margin:8px 0; }
+  .diag-block .dbt{ font-size:11.5px; color:var(--text); margin-bottom:3px; }
+  .diag-block .dbn{ font-family:var(--mono); font-size:10.5px; color:var(--muted); line-height:1.6; }
+  .diag-block .dbnote{ font-size:10.5px; color:var(--dim); line-height:1.5; margin-top:4px; }
+  .pvbtns{ display:flex; gap:8px; flex-wrap:wrap; }
+
+  /* toast */
+  #toast{
+    position:fixed; left:50%; bottom:26px; transform:translateX(-50%) translateY(20px);
+    background:var(--panel-2); border:1px solid var(--line); color:var(--text);
+    padding:9px 16px; border-radius:8px; font-size:12.5px; opacity:0; pointer-events:none;
+    transition:opacity .2s, transform .2s; z-index:50; max-width:80vw;
+  }
+  #toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
+  ::-webkit-scrollbar{ width:11px; height:11px; }
+  ::-webkit-scrollbar-thumb{ background:#2a2d36; border-radius:6px; border:2px solid var(--bg); }
+  ::-webkit-scrollbar-thumb:hover{ background:#363a45; }
+</style>
+</head>
+<body>
+
+<div id="top">
+  <div class="brand"><span class="dot"></span>FBX 資產管理器</div>
+  <button class="tbtn primary" id="pickBtn">選擇資料夾</button>
+  <button class="tbtn" id="rescanBtn" disabled>重新掃描</button>
+  <div class="spacer"></div>
+  <button class="tbtn" id="saveProjBtn" disabled>儲存專案<span id="dirtyDot" class="dirty-dot">●</span></button>
+  <button class="tbtn" id="loadProjBtn">載入專案</button>
+</div>
+
+<div id="body">
+  <div id="gridCol">
+    <div id="gridBar">
+      <span class="stat" id="countStat"></span>
+      <div class="spacer"></div>
+      <button class="tbtn sm" id="reviewBtn" title="外包驗收 / 版本比對模式">驗收</button>
+      <label class="chk"><input type="checkbox" id="texOnly">只顯示有貼圖</label>
+      <select class="sel" id="sortSel" title="排序方式">
+        <option value="name">依名稱</option>
+        <option value="path">依路徑</option>
+        <option value="tris">依三角面數</option>
+        <option value="size">依檔案大小</option>
+      </select>
+      <input id="search" placeholder="搜尋檔名 / 路徑…">
+    </div>
+    <div id="reviewFilters">
+      <div id="reviewSummary"></div>
+      <div class="spacer"></div>
+      <select class="sel" id="reviewFilterSel" title="篩選">
+        <option value="all">全部</option>
+        <option value="fail">僅未達標</option>
+        <option value="changed">僅有變更</option>
+        <option value="pending">未分析</option>
+      </select>
+      <button class="tbtn sm" id="analyzeAllBtn" title="逐一分析所有模型以取得驗收指標">分析全部</button>
+      <button class="tbtn sm" id="specBtn" title="編輯達標規格">驗收設定</button>
+      <button class="tbtn sm" id="loadBaseBtn" title="載入上一版基準以比對差異">載入基準</button>
+      <button class="tbtn sm" id="saveBaseBtn" title="將本版存為基準(供下次比對)">存為基準</button>
+      <button class="tbtn sm" id="reportBtn" title="匯出驗收報告 CSV">匯出報告</button>
+    </div>
+    <div id="gridWrap">
+      <div id="grid"></div>
+      <div id="empty">
+        <div class="big">選擇一個資料夾以瀏覽其中的 FBX 角色</div>
+        <div class="hint">會遞迴掃描子資料夾,自動配對相鄰的貼圖檔(png / jpg / webp / bmp / tga / dds)。
+          貼圖以「檔名」比對重導,因此 FBX 內記錄的原始絕對路徑失效也沒關係。</div>
+        <button class="tbtn primary" id="pickBtn2">選擇資料夾</button>
+        <div class="warn">需要 Chrome / Edge(File System Access API)。其他瀏覽器會退回單次資料夾上傳模式。</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="preview">
+    <div class="grip-x" id="pvGripX" title="拖曳調整寬度(雙擊還原)"></div>
+    <div id="pvHead">
+      <span id="pvName">—</span>
+      <div class="spacer"></div>
+      <button class="ibtn" id="pvMax" title="最大化檢視(Esc 退出)">放大</button>
+      <button class="ibtn" id="pvClose" title="關閉預覽">✕</button>
+    </div>
+    <div id="pvVpWrap">
+      <canvas id="pvCanvas"></canvas>
+      <div id="pvOverlay">
+        <div class="spacer"></div>
+        <button class="ibtn" id="pvUp" title="切換 Up 軸(Z↑ ↔ Y↑)">Y↑</button>
+        <button class="ibtn" id="pvWire" title="線框">線框</button>
+        <button class="ibtn" id="pvFrame" title="重新取景">取景</button>
+      </div>
+    </div>
+    <div class="grip-y" id="pvGripY" title="拖曳調整高度(雙擊還原)"></div>
+    <div id="pvTransport" style="display:none">
+      <button class="ibtn" id="pvPlay" title="播放/暫停">❚❚</button>
+      <span id="pvTime" class="tc">0.00 / 0.00s</span>
+      <input type="range" id="pvSeek" min="0" max="1" step="0.001" value="0" title="拖動時間軸">
+      <select id="pvClip"></select>
+    </div>
+    <div id="pvBody">
+      <div class="sec">
+        <h4>資訊</h4>
+        <div id="pvInfo"></div>
+      </div>
+      <div class="sec" id="pvReviewSec" style="display:none">
+        <h4>驗收 / 版本差異</h4>
+        <div id="pvReview"></div>
+      </div>
+      <div class="sec" id="pvDiagSec">
+        <h4>貼圖診斷 <span class="h4hint">FBX 要求的貼圖配對狀況</span></h4>
+        <div id="pvDiag"></div>
+      </div>
+      <div class="sec" id="pvTexSec">
+        <h4>貼圖 / 材質 <span class="h4hint">點空槽上載貼圖</span></h4>
+        <div id="pvMats"></div>
+      </div>
+      <div class="sec">
+        <div class="pvbtns">
+          <button class="tbtn" id="pvReload">重新載入</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="specModal">
+  <div class="modal-card">
+    <div class="modal-head">
+      <span>驗收規格</span>
+      <button class="ibtn" id="specClose">✕</button>
+    </div>
+    <div class="modal-body">
+      <label class="sp-row sp-toggle"><input type="checkbox" id="spEnabled"> 啟用達標判定</label>
+      <div class="sp-grid">
+        <label class="sp-row">三角面上限<input class="num2" id="spMaxTris" placeholder="例:30000" inputmode="numeric"></label>
+        <label class="sp-row">材質數上限<input class="num2" id="spMaxMats" placeholder="例:4" inputmode="numeric"></label>
+        <label class="sp-row">骨骼數下限<input class="num2" id="spMinBones" placeholder="不限" inputmode="numeric"></label>
+        <label class="sp-row">骨骼數上限<input class="num2" id="spMaxBones" placeholder="不限" inputmode="numeric"></label>
+      </div>
+      <label class="sp-row sp-toggle"><input type="checkbox" id="spReqTex"> 必須有貼圖且無缺失</label>
+      <label class="sp-row sp-col">必要動畫剪輯(逗號分隔,以名稱包含比對)
+        <input class="num2 wide" id="spClips" placeholder="例:idle, walk, attack"></label>
+      <div class="sp-grid">
+        <label class="sp-row">up 軸要求
+          <select class="sel" id="spUpAxis">
+            <option value="any">不限</option>
+            <option value="Y">Y↑</option>
+            <option value="Z">Z↑</option>
+          </select></label>
+        <label class="sp-row">檔名規則(regex)<input class="num2" id="spName" placeholder="例:^CH_"></label>
+      </div>
+      <div class="sp-hint">規格會存進專案 JSON。判定在每個模型分析後即時套用;尚未分析的模型請按「分析全部」。</div>
+    </div>
+    <div class="modal-foot">
+      <button class="tbtn" id="specCancel">取消</button>
+      <button class="tbtn primary" id="specSave">套用規格</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+    "fflate": "https://cdn.jsdelivr.net/npm/fflate@0.8.2/esm/browser.js"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
+import { TGALoader } from 'three/addons/loaders/TGALoader.js';
+import { DDSLoader } from 'three/addons/loaders/DDSLoader.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+const $ = id => document.getElementById(id);
+const SUPPORTED_TEX   = /\.(png|jpe?g|webp|bmp|gif|tga|dds)$/i;   // 可實際解碼
+const UNSUPPORTED_TEX = /\.(tif?f|psd|exr|hdr)$/i;                // 瀏覽器 / three 無法在前端解碼
+const IMG_RE = /\.(png|jpe?g|webp|bmp|gif|tga|dds|tif?f|psd|exr|hdr)$/i;   // 任意貼圖樣式(偵測用)
+const TEX_HINT = { tga:'TGA', dds:'DDS', png:'PNG', jpg:'JPG', jpeg:'JPG', webp:'WEBP', bmp:'BMP' };
+
+/* ───────── 全域狀態 ───────── */
+const G = {
+  rootName:'', entries:[],              // 所有檔案 entry (正規化)
+  assets:[],                            // FBX entries（含 stats / thumb 狀態）
+  fileIndex:{ byName:new Map(), byTail:new Map(), blobName:new Map() },
+  blobURLs:[],                          // 待 revoke
+  envTex:null,
+  selected:-1, curAsset:null,
+  dirty:false, pendingProject:null,
+  spec:null, baseline:null, reviewMode:false,
+};
+const DEFAULT_SPEC = {
+  enabled:true,
+  maxTris:null, minBones:null, maxBones:null, maxMaterials:null,
+  requireTextures:true, requiredClips:[], upAxis:'any', nameRegex:'',
+  trisWarnPct:30,          // 與基準相比三角面增減超過此 % 給警告
+};
+
+/* ───────── 共用工具 ───────── */
+let toastTimer;
+function toast(msg, ms=2400){
+  const t = $('toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(toastTimer); toastTimer = setTimeout(()=>t.classList.remove('show'), ms);
+}
+const basename = p => p.replace(/\\/g,'/').split('/').pop();
+const dirname  = p => { const a = p.replace(/\\/g,'/').split('/'); a.pop(); return a.join('/'); };
+function fmtBytes(b){
+  if (b == null) return '—';
+  if (b < 1024) return b + ' B';
+  if (b < 1048576) return (b/1024).toFixed(1) + ' KB';
+  return (b/1048576).toFixed(1) + ' MB';
+}
+function fmtNum(n){ return n.toLocaleString('en-US'); }
+
+/* ───────── 資料夾掃描 ───────── */
+async function* walkHandle(handle, path=''){
+  for await (const entry of handle.values()){
+    const p = path ? path + '/' + entry.name : entry.name;
+    if (entry.kind === 'directory') yield* walkHandle(entry, p);
+    else yield { name:entry.name, path:p, _handle:entry };
+  }
+}
+function entryFile(e){ return e._file ? Promise.resolve(e._file) : e._handle.getFile(); }
+
+async function pickDirectory(){
+  let entries = [], rootName = '';
+  if (window.showDirectoryPicker){
+    let dir;
+    try { dir = await window.showDirectoryPicker({ mode:'read' }); }
+    catch(err){ if (err && err.name === 'AbortError') return; throw err; }
+    rootName = dir.name;
+    for await (const e of walkHandle(dir)) entries.push(e);
+  } else {
+    const picked = await pickViaInput();
+    if (!picked) return;
+    entries = picked.entries; rootName = picked.rootName;
+  }
+  await ingest(entries, rootName);
+}
+
+function pickViaInput(){
+  return new Promise(resolve=>{
+    const inp = document.createElement('input');
+    inp.type = 'file'; inp.multiple = true; inp.webkitdirectory = true;
+    inp.onchange = ()=>{
+      const files = [...inp.files];
+      if (!files.length){ resolve(null); return; }
+      const rootName = (files[0].webkitRelativePath || files[0].name).split('/')[0];
+      const entries = files.map(f=>{
+        const rel = f.webkitRelativePath || f.name;
+        return { name:f.name, path:rel.split('/').slice(1).join('/') || f.name, _file:f };
+      });
+      resolve({ entries, rootName });
+    };
+    inp.click();
+  });
+}
+
+async function ingest(entries, rootName){
+  // 清理上一批
+  G.blobURLs.forEach(u=>URL.revokeObjectURL(u)); G.blobURLs = [];
+  G.fileIndex = { byName:new Map(), byTail:new Map(), blobName:new Map() };
+  closePreview();
+  G.selected = -1;
+
+  G.entries = entries; G.rootName = rootName;
+  const images = entries.filter(e => SUPPORTED_TEX.test(e.name));
+  const fbx = entries.filter(e => /\.fbx$/i.test(e.name));
+
+  $('empty').style.display = 'none';
+  toast(`掃描中:${entries.length} 個檔案,${fbx.length} 個 FBX,${images.length} 張貼圖…`, 3000);
+
+  // 預先把所有影像建成 blob URL（setURLModifier 是同步的,必須先備好）
+  await resolveImages(images);
+
+  // 建立資產清單
+  G.assets = fbx.map((e, i)=>({
+    ...e, idx:i, dir:dirname(e.path), size:null,
+    state:'pending', thumb:null, stats:null, missing:[], error:null,
+    clips:null, materialCount:null, eval:null, diff:null, upAxisAuto:null,
+  }));
+
+  // 取檔案大小（並行,分批避免一次太多 handle）
+  await mapLimit(G.assets, 8, async a=>{ try{ a.size = (await entryFile(a)).size; }catch(_){} });
+
+  $('rescanBtn').disabled = false;
+  $('saveProjBtn').disabled = false;
+  renderGrid();
+  if (G.pendingProject) applyPendingProject();
+  if (G.reviewMode || G.baseline || (G.spec && G.spec.enabled)) syncReviewUI();
+  toast(`完成:找到 ${fbx.length} 個 FBX 角色`);
+}
+
+async function resolveImages(images){
+  await mapLimit(images, 12, async e=>{
+    let file; try{ file = await entryFile(e); }catch(_){ return; }
+    const url = URL.createObjectURL(file);
+    G.blobURLs.push(url);
+    G.fileIndex.blobName.set(url, e.name);
+    const base = e.name.toLowerCase();
+    const pathLc = e.path.replace(/\\/g,'/').toLowerCase();
+    const dir = pathLc.split('/').slice(0,-1).join('/');
+    const arr = G.fileIndex.byName.get(base) || [];     // 同名可能有多個候選 → 全部收集
+    arr.push({ url, path:pathLc, dir });
+    G.fileIndex.byName.set(base, arr);
+    const tail = pathLc.split('/').slice(-2).join('/');
+    if (!G.fileIndex.byTail.has(tail)) G.fileIndex.byTail.set(tail, url);
+    e._blob = url;
+  });
+}
+function commonPrefixLen(aDir, bDir){
+  const A = aDir.split('/'), B = bDir.split('/');
+  let n = 0; while (n < A.length && n < B.length && A[n] === B[n]) n++;
+  return n;
+}
+function resolveByName(base, assetDir){
+  const cands = G.fileIndex.byName.get(base);
+  if (!cands || !cands.length) return null;
+  if (cands.length === 1) return cands[0].url;
+  let best = cands[0], bestScore = -1;                  // 多個同名 → 選目錄最接近該 FBX 的
+  for (const c of cands){
+    const s = commonPrefixLen(assetDir || '', c.dir);
+    if (s > bestScore){ bestScore = s; best = c; }
+  }
+  return best.url;
+}
+
+function mapLimit(arr, limit, fn){
+  let i = 0;
+  const run = async()=>{ while (i < arr.length){ const k = i++; await fn(arr[k], k); } };
+  return Promise.all(Array.from({length:Math.min(limit, arr.length)}, run));
+}
+
+/* ───────── 貼圖重導 LoadingManager ───────── */
+function urlModifier(missSet, diag, assetDir){
+  return url=>{
+    if (/^(blob:|data:)/i.test(url)){                    // 內嵌貼圖,原樣放行
+      if (diag) diag.items.push({ raw:'(內嵌)', base:'', status:'embedded', blobURL:url });
+      return url;
+    }
+    let clean = url; try{ clean = decodeURIComponent(url); }catch(_){}
+    clean = clean.split('?')[0].split('#')[0].replace(/\\/g,'/');
+    const lc = clean.toLowerCase();
+    const tail = lc.split('/').slice(-2).join('/');
+    const base = lc.split('/').pop();
+    const item = { raw:clean.split('/').pop(), base, status:'', blobURL:null };
+
+    if (UNSUPPORTED_TEX.test(base)){                      // TIFF/PSD/EXR 等前端無法解碼
+      item.status = 'unsupported';
+      if (missSet) missSet.add(base);
+      if (diag) diag.items.push(item);
+      return url;
+    }
+    const hit = G.fileIndex.byTail.get(tail) || resolveByName(base, assetDir);
+    if (hit){
+      item.status = 'ok'; item.blobURL = hit;
+      if (diag) diag.items.push(item);
+      return hit;
+    }
+    item.status = 'notfound';
+    if (missSet) missSet.add(base);
+    if (diag) diag.items.push(item);
+    return url;                                           // 找不到 → 原樣（會載入失敗,但已記錄）
+  };
+}
+
+/* ───────── 材質 / 貼圖修正與統計 ───────── */
+const COLOR_MAPS = ['map','emissiveMap','specularMap','sheenColorMap'];
+function fixMaterials(root){
+  const texSet = new Map();   // uuid -> { tex, slot }
+  root.traverse(o=>{
+    if (!o.isMesh) return;
+    o.frustumCulled = false;
+    const mats = Array.isArray(o.material) ? o.material : [o.material];
+    mats.forEach(mat=>{
+      if (!mat) return;
+      for (const key in mat){
+        const v = mat[key];
+        if (v && v.isTexture){
+          if (COLOR_MAPS.includes(key)) v.colorSpace = THREE.SRGBColorSpace;
+          else if (/Map$/.test(key)) v.colorSpace = THREE.NoColorSpace;
+          v.anisotropy = 4;
+          if (v.image && !texSet.has(v.uuid)) texSet.set(v.uuid, { tex:v, slot:key });
+        }
+      }
+      mat.side = THREE.DoubleSide;
+      mat.needsUpdate = true;
+    });
+  });
+  return [...texSet.values()];
+}
+function computeStats(root){
+  let tris = 0, verts = 0, meshes = 0, bones = 0;
+  const skel = new Set();
+  root.traverse(o=>{
+    if (o.isMesh && o.geometry){
+      meshes++;
+      const g = o.geometry;
+      const idx = g.index ? g.index.count : (g.attributes.position ? g.attributes.position.count : 0);
+      tris += idx / 3;
+      verts += g.attributes.position ? g.attributes.position.count : 0;
+    }
+    if (o.isBone) bones++;
+    if (o.isSkinnedMesh && o.skeleton) skel.add(o.skeleton);
+  });
+  let skelBones = 0; skel.forEach(s=>skelBones += s.bones.length);
+  return { tris:Math.round(tris), verts, meshes, bones:Math.max(bones, skelBones) };
+}
+
+/* ───────── 縮圖渲染（共用小 renderer） ───────── */
+let thumbRenderer, thumbScene, thumbCam, thumbKey, thumbHemi;
+function initThumbRenderer(){
+  if (thumbRenderer) return;
+  thumbRenderer = new THREE.WebGLRenderer({ antialias:true, alpha:true, preserveDrawingBuffer:true });
+  thumbRenderer.setSize(400, 400, false);
+  thumbRenderer.setPixelRatio(1);
+  thumbRenderer.outputColorSpace = THREE.SRGBColorSpace;
+  thumbRenderer.toneMapping = THREE.ACESFilmicToneMapping;
+  thumbRenderer.toneMappingExposure = 1.05;
+  thumbScene = new THREE.Scene();
+  thumbCam = new THREE.PerspectiveCamera(35, 1, 0.01, 1e6);
+  thumbHemi = new THREE.HemisphereLight(0xffffff, 0x33373f, 1.4); thumbScene.add(thumbHemi);
+  thumbKey = new THREE.DirectionalLight(0xffffff, 2.0); thumbKey.position.set(2,4,3); thumbScene.add(thumbKey);
+  const fill = new THREE.DirectionalLight(0xbcd0ff, 0.55); fill.position.set(-3,1,-2); thumbScene.add(fill);
+  thumbScene.environment = envFor(thumbRenderer);
+}
+function envFor(renderer){
+  if (renderer.__env) return renderer.__env;          // 每個 WebGL context 各自產生（PMREM 為 GPU-only,不可跨 context）
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const tex = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+  pmrem.dispose();
+  renderer.__env = tex;
+  return tex;
+}
+
+/* 載入 FBX 並等待所有貼圖實際載完（parse 同步回傳,但貼圖是非同步） */
+function loadFBXReady(buf, missSet, diag, assetDir, timeoutMs=15000){
+  return new Promise((resolve, reject)=>{
+    const m = new THREE.LoadingManager();
+    m.addHandler(/\.tga$/i, new TGALoader(m));
+    m.addHandler(/\.dds$/i, new DDSLoader(m));            // 外部 DDS 壓縮貼圖
+    m.setURLModifier(urlModifier(missSet, diag, assetDir));
+    let model, started = false, finished = false, timer;
+    const finish = ()=>{
+      if (finished) return; finished = true; clearTimeout(timer);
+      resolve(model);
+    };
+    m.onStart = ()=>{ started = true; };
+    m.onLoad  = finish;
+    m.onError = (url)=>{                                  // 配對到檔案卻載入/解碼失敗 → 標記 failed
+      if (!diag) return;
+      diag.items.forEach(it=>{ if (it.blobURL && it.blobURL === url && it.status === 'ok') it.status = 'failed'; });
+      if (missSet){ const f = diag.items.find(it=>it.blobURL === url); if (f) missSet.add(f.base); }
+    };
+    try { model = new FBXLoader(m).parse(buf, ''); }
+    catch(err){ return reject(err); }
+    normalizeClips(model);                                       // 修剪每段動畫前置的空白(時間原點偏移)
+    Promise.resolve().then(()=>{ if (!started) finish(); });   // 沒有任何外部資源 → 立即完成
+    timer = setTimeout(finish, timeoutMs);                       // 安全逾時,避免卡死佇列
+  });
+}
+/* FBX take 常不從時間 0 開始,造成 clip 前段定格(空白幀)。
+   將每段 clip 所有軌道時間整體左移,使最早的 keyframe 對齊 0。 */
+/* ── FBX 座標系(UpAxis)偵測 ──
+   FBXLoader 不會轉換座標系;Z-up 的 FBX 會躺著匯入。
+   這裡自行解析 GlobalSettings 的 UpAxis(0=X,1=Y,2=Z)以自動校正。 */
+function detectFBXUpAxis(buf){
+  try{
+    const u8 = new Uint8Array(buf);
+    const cap = Math.min(u8.length, 300000);           // GlobalSettings 位於檔案前段
+    const magic = 'Kaydara FBX Binary';
+    let isBinary = true;
+    for (let i = 0; i < magic.length; i++){ if (u8[i] !== magic.charCodeAt(i)){ isBinary = false; break; } }
+    let v;
+    if (isBinary) v = readBinaryIntProp(u8, 'UpAxis', cap);
+    else {
+      let s = ''; for (let i = 0; i < cap; i++) s += String.fromCharCode(u8[i]);
+      const m = s.match(/"UpAxis"\s*,\s*"[^"]*"\s*,\s*"[^"]*"\s*,\s*"[^"]*"\s*,\s*(-?\d+)/);
+      v = m ? parseInt(m[1], 10) : null;
+    }
+    if (v == null) return null;
+    return v === 2 ? 'Z' : (v === 0 ? 'X' : 'Y');
+  }catch(_){ return null; }
+}
+function readBinaryIntProp(u8, name, cap){
+  // 找到完整的 S 字串記錄:0x53 + uint32(len==name.length) + name
+  const n = name.length; let pos = -1;
+  for (let i = 0; i + 5 + n <= cap; i++){
+    if (u8[i] !== 0x53) continue;
+    const len = u8[i+1] | (u8[i+2]<<8) | (u8[i+3]<<16) | (u8[i+4]<<24);
+    if (len !== n) continue;
+    let ok = true; for (let j = 0; j < n; j++){ if (u8[i+5+j] !== name.charCodeAt(j)){ ok = false; break; } }
+    if (ok){ pos = i + 5 + n; break; }
+  }
+  if (pos < 0) return null;
+  // 跳過 3 個字串屬性(type / label / flags),再讀 'I'(0x49)+ int32
+  let p = pos;
+  for (let k = 0; k < 3 && p < u8.length; k++){
+    if (u8[p] !== 0x53) break;
+    p++;
+    const len = u8[p] | (u8[p+1]<<8) | (u8[p+2]<<16) | (u8[p+3]<<24);
+    p += 4 + len;
+  }
+  for (let q = p; q < p + 24 && q < u8.length - 4; q++){
+    if (u8[q] === 0x49) return (u8[q+1] | (u8[q+2]<<8) | (u8[q+3]<<16) | (u8[q+4]<<24));
+  }
+  return null;
+}
+function effectiveUpAxis(a){ return a.upAxis || a.upAxisAuto || 'Y'; }   // 使用者覆寫 > 自動偵測 > 預設 Y
+
+function normalizeClips(model){
+  const clips = model.animations || [];
+  let trimmedCount = 0;
+  for (const clip of clips){
+    let tMin = Infinity;
+    for (const tr of clip.tracks){
+      if (tr.times.length && tr.times[0] < tMin) tMin = tr.times[0];
+    }
+    if (isFinite(tMin) && tMin > 1e-3){
+      for (const tr of clip.tracks){
+        const t = tr.times;
+        for (let i = 0; i < t.length; i++){ t[i] = t[i] - tMin; if (t[i] < 0) t[i] = 0; }
+      }
+      clip.resetDuration();
+      clip.__trimStart = tMin;        // 記錄修剪量,供 UI 顯示確認
+      trimmedCount++;
+    }
+  }
+  return trimmedCount;
+}
+function frameToCamera(obj, cam, fill=1.5, dir=null){
+  const box = new THREE.Box3().setFromObject(obj);
+  if (box.isEmpty()) return null;
+  const size = box.getSize(new THREE.Vector3());
+  const center = box.getCenter(new THREE.Vector3());
+  const maxDim = Math.max(size.x, size.y, size.z) || 1;
+  const fov = cam.fov * Math.PI/180;
+  let dist = (maxDim/2) / Math.tan(fov/2) * fill;
+  const d = dir || new THREE.Vector3(0.55, 0.32, 1).normalize();
+  cam.position.copy(center).addScaledVector(d, dist);
+  cam.near = dist/100; cam.far = dist*100; cam.updateProjectionMatrix();
+  cam.lookAt(center);
+  return { center, maxDim, dist };
+}
+function disposeObject(obj){
+  obj.traverse(o=>{
+    if (o.geometry) o.geometry.dispose();
+    const mats = Array.isArray(o.material) ? o.material : (o.material ? [o.material] : []);
+    mats.forEach(m=>{
+      for (const k in m){ const v = m[k]; if (v && v.isTexture) v.dispose(); }
+      m.dispose();
+    });
+  });
+}
+
+/* ───────── 縮圖佇列（單執行） ───────── */
+const thumbQueue = [];
+let thumbBusy = false;
+function enqueueThumb(asset){
+  if (asset.state !== 'pending') return;
+  asset.state = 'queued';
+  thumbQueue.push(asset);
+  pumpThumbs();
+}
+async function pumpThumbs(){
+  if (thumbBusy) return;
+  const asset = thumbQueue.shift();
+  if (!asset) return;
+  thumbBusy = true;
+  try { await buildThumb(asset); }
+  catch(err){ asset.state = 'error'; asset.error = err.message || String(err); console.warn('thumb fail', asset.path, err); }
+  finally { thumbBusy = false; updateCard(asset); pumpThumbs(); }
+}
+async function buildThumb(asset){
+  asset.state = 'loading'; updateCard(asset);
+  initThumbRenderer();
+  const buf = await (await entryFile(asset)).arrayBuffer();
+  const miss = new Set();
+  const diag = { items:[] };
+  let model;
+  try { model = await loadFBXReady(buf, miss, diag, asset.dir); }
+  catch(err){ throw new Error('FBX 解析失敗'); }
+
+  const texes = fixMaterials(model);
+  const stats = computeStats(model);
+  const mats = collectMaterials(model);
+  asset.stats = stats;
+  asset.texCount = texes.length;
+  asset.missing = [...miss];
+  asset.diag = diag;
+  asset.materialCount = mats.length;
+  asset.clips = (model.animations || []).map(c=>({ name:c.name || '', duration:+(c.duration||0).toFixed(3) }));
+
+  // 套用已記錄的覆寫,讓縮圖也反映手動貼圖(載入專案後)
+  if (asset.overrides){
+    await applyOverrides(mats, asset.overrides);
+  }
+  if (asset.upAxisAuto == null) asset.upAxisAuto = detectFBXUpAxis(buf) || 'Y';   // 偵測座標系
+  if (effectiveUpAxis(asset) === 'Z') model.rotation.x = -Math.PI/2;
+
+  thumbScene.add(model);
+  frameToCamera(model, thumbCam, 1.45);
+  thumbRenderer.render(thumbScene, thumbCam);
+  asset.thumb = thumbRenderer.domElement.toDataURL('image/png');
+
+  thumbScene.remove(model);
+  disposeObject(model);
+  asset.state = 'done';
+  reviewEvaluate(asset);           // 分析完成即評估達標 / 比對基準
+}
+
+/* ───────── 卡片渲染 ───────── */
+let io;
+function renderGrid(){
+  const grid = $('grid');
+  grid.innerHTML = '';
+  if (io) io.disconnect();
+  io = new IntersectionObserver(ents=>{
+    ents.forEach(en=>{
+      if (en.isIntersecting){
+        const idx = +en.target.dataset.idx;
+        enqueueThumb(G.assets[idx]);
+      }
+    });
+  }, { root:$('gridWrap'), rootMargin:'300px' });
+
+  const list = filteredAssets();
+  $('gridBar').classList.toggle('on', G.assets.length > 0);
+  $('countStat').innerHTML = list.length === G.assets.length
+    ? `<b>${G.assets.length}</b> 個模型`
+    : `<b>${list.length}</b> / ${G.assets.length} 個模型`;
+
+  for (const a of list){
+    const card = document.createElement('div');
+    card.className = 'card' + (a.idx === G.selected ? ' sel' : '')
+      + (G.reviewMode && a.eval && !a.eval.pass ? ' r-fail' : '')
+      + (G.reviewMode && a.diff && (a.diff.status==='changed'||a.diff.status==='new') ? ' r-chg' : '');
+    card.dataset.idx = a.idx;
+    card.innerHTML = `
+      <div class="thumb">${thumbInner(a)}</div>
+      <div class="meta">
+        <div class="cname" title="${esc(a.name)}">${esc(a.name)}</div>
+        <div class="cpath" title="${esc(a.dir || '(根目錄)')}">${esc(a.dir || '(根目錄)')}</div>
+        <div class="badges">${badgesHTML(a)}</div>
+      </div>`;
+    card.addEventListener('click', ()=>selectAsset(a.idx));
+    grid.appendChild(card);
+    a._card = card;
+    io.observe(card);
+  }
+}
+function thumbInner(a){
+  if (a.state === 'done' && a.thumb) return `<img src="${a.thumb}" alt="">`;
+  if (a.state === 'error') return `<div class="err">載入失敗<br>${esc(a.error||'')}</div>`;
+  if (a.state === 'loading') return `<div class="spin"></div>`;
+  return `<div class="ph">…</div>`;
+}
+function badgesHTML(a){
+  if (!a.stats) return `<span class="badge">—</span>`;
+  const s = a.stats;
+  const b = [];
+  if (G.reviewMode){
+    if (a.eval) b.push(a.eval.pass
+      ? `<span class="badge pass">達標</span>`
+      : `<span class="badge fail" title="${esc(a.eval.fails.join(' ; '))}">未達標 ${a.eval.fails.length}</span>`);
+    if (a.diff){
+      if (a.diff.status === 'new') b.push(`<span class="badge new">新檔</span>`);
+      else if (a.diff.status === 'changed'){
+        const tr = a.diff.changes.find(c=>c.label==='三角面');
+        const trTxt = tr ? ` ${tr.delta>0?'▲':'▼'}${kfmt(Math.abs(tr.delta))}` : '';
+        b.push(`<span class="badge chg" title="${esc(diffTitle(a.diff))}">變更${trTxt}</span>`);
+      }
+    }
+  }
+  b.push(`<span class="badge">TRIS ${kfmt(s.tris)}</span>`);
+  if (s.bones) b.push(`<span class="badge">BONES ${s.bones}</span>`);
+  if (a.missing && a.missing.length) b.push(`<span class="badge miss">貼圖缺失 ${a.missing.length}</span>`);
+  else if (a.texCount) b.push(`<span class="badge tex">TEX ${a.texCount}</span>`);
+  else b.push(`<span class="badge">無貼圖</span>`);
+  return b.join('');
+}
+function diffTitle(df){
+  return (df.changes||[]).map(c=> c.text ? `${c.label}: ${c.text}` : `${c.label} ${c.from}→${c.to}`).join('\n');
+}
+function updateCard(a){
+  if (!a._card) return;
+  const t = a._card.querySelector('.thumb');
+  if (t) t.innerHTML = thumbInner(a);
+  const bd = a._card.querySelector('.badges');
+  if (bd) bd.innerHTML = badgesHTML(a);
+  a._card.classList.toggle('r-fail', !!(G.reviewMode && a.eval && !a.eval.pass));
+  a._card.classList.toggle('r-chg',  !!(G.reviewMode && a.diff && (a.diff.status==='changed' || a.diff.status==='new')));
+}
+function kfmt(n){ return n >= 1000 ? (n/1000).toFixed(n >= 10000 ? 0 : 1) + 'k' : String(n); }
+function esc(s){ return String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+/* ───────── 篩選 / 排序 ───────── */
+function filteredAssets(){
+  const q = $('search').value.trim().toLowerCase();
+  const texOnly = $('texOnly').checked;
+  const rf = G.reviewMode ? ($('reviewFilterSel') ? $('reviewFilterSel').value : 'all') : 'all';
+  let list = G.assets.filter(a=>{
+    if (texOnly && !(a.texCount > 0)) return false;
+    if (rf === 'fail'    && !(a.eval && !a.eval.pass)) return false;
+    if (rf === 'changed' && !(a.diff && (a.diff.status === 'changed' || a.diff.status === 'new'))) return false;
+    if (rf === 'pending' && a.stats) return false;
+    if (!q) return true;
+    return a.name.toLowerCase().includes(q) || a.path.toLowerCase().includes(q);
+  });
+  const by = $('sortSel').value;
+  list.sort((x,y)=>{
+    if (by === 'name') return x.name.localeCompare(y.name);
+    if (by === 'path') return x.path.localeCompare(y.path);
+    if (by === 'tris') return (y.stats?.tris||0) - (x.stats?.tris||0);
+    if (by === 'size') return (y.size||0) - (x.size||0);
+    return 0;
+  });
+  return list;
+}
+
+/* ───────── 預覽面板 ───────── */
+let previewRenderer, pvScene, pvCam, pvControls, pvMixer, pvClock;
+let pvModel = null, pvActions = [], pvCurAction = null, pvPlaying = true;
+let pvRAF = 0, pvUpMode = 'auto', pvWire = false, pvFrameInfo = null;
+let pvSeeking = false, pvMaterials = [], pendingSlot = null, pvSeekEl, pvTimeEl;
+
+function initPreview(){
+  if (previewRenderer) return;
+  pvSeekEl = $('pvSeek'); pvTimeEl = $('pvTime');
+  const canvas = $('pvCanvas');
+  previewRenderer = new THREE.WebGLRenderer({ canvas, antialias:true, alpha:false });
+  previewRenderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  previewRenderer.outputColorSpace = THREE.SRGBColorSpace;
+  previewRenderer.toneMapping = THREE.ACESFilmicToneMapping;
+  previewRenderer.toneMappingExposure = 1.05;
+  previewRenderer.shadowMap.enabled = false;
+
+  pvScene = new THREE.Scene();
+  pvScene.background = new THREE.Color(0x101116);
+  pvScene.environment = envFor(previewRenderer);
+
+  pvCam = new THREE.PerspectiveCamera(38, 1, 0.01, 1e6);
+  pvControls = new OrbitControls(pvCam, canvas);
+  pvControls.enableDamping = true; pvControls.dampingFactor = 0.08;
+
+  pvScene.add(new THREE.HemisphereLight(0xffffff, 0x33373f, 1.2));
+  const key = new THREE.DirectionalLight(0xffffff, 1.9); key.position.set(3,5,4); pvScene.add(key);
+  const fill = new THREE.DirectionalLight(0xbcd0ff, 0.5); fill.position.set(-4,2,-3); pvScene.add(fill);
+
+  // 接觸陰影地面（半透明）
+  const grid = new THREE.GridHelper(10, 20, 0x2a2d36, 0x20222a);
+  grid.material.opacity = 0.5; grid.material.transparent = true; grid.name = '__grid';
+  pvScene.add(grid);
+}
+function pvResize(){
+  const w = $('pvVpWrap').clientWidth, h = $('pvVpWrap').clientHeight;
+  if (!w || !h) return;
+  previewRenderer.setSize(w, h, false);
+  pvCam.aspect = w/h; pvCam.updateProjectionMatrix();
+}
+function pvLoop(){
+  pvRAF = requestAnimationFrame(pvLoop);
+  pvResize();
+  if (pvMixer && pvPlaying && !pvSeeking) pvMixer.update(pvClock.getDelta());
+  else pvClock.getDelta();
+  if (pvCurAction && !pvSeeking && pvSeekEl){
+    const d = pvCurAction.getClip().duration || 1;
+    const t = pvCurAction.time;
+    pvSeekEl.value = t;
+    pvTimeEl.textContent = t.toFixed(2) + ' / ' + d.toFixed(2) + 's';
+  }
+  pvControls.update();
+  previewRenderer.render(pvScene, pvCam);
+}
+
+async function selectAsset(idx){
+  const a = G.assets[idx];
+  if (!a) return;
+  G.selected = idx;
+  document.querySelectorAll('.card').forEach(c=>c.classList.toggle('sel', +c.dataset.idx === idx));
+  openPreview();
+  $('pvName').textContent = a.name;
+  await loadIntoPreview(a);
+}
+function openPreview(){
+  initPreview();
+  $('preview').classList.add('open');
+  if (!pvClock) pvClock = new THREE.Clock();
+  if (!pvRAF) pvLoop();
+}
+function closePreview(){
+  if ($('preview').classList.contains('max')) toggleMax(false);
+  $('preview').classList.remove('open');
+  if (pvRAF){ cancelAnimationFrame(pvRAF); pvRAF = 0; }
+  clearPreviewModel();
+  G.selected = -1; G.curAsset = null;
+  document.querySelectorAll('.card.sel').forEach(c=>c.classList.remove('sel'));
+}
+function clearPreviewModel(){
+  if (pvMixer){ pvMixer.stopAllAction(); pvMixer.uncacheRoot(pvModel); pvMixer = null; }
+  if (pvModel){ pvScene.remove(pvModel); disposeObject(pvModel); pvModel = null; }
+  pvActions = []; pvCurAction = null;
+}
+async function loadIntoPreview(a){
+  clearPreviewModel();
+  G.curAsset = a;
+  $('pvInfo').innerHTML = `<div class="kv"><span class="k">狀態</span><span class="v">載入中…</span></div>`;
+  $('pvMats').innerHTML = '';
+  pvUpMode = (a.upAxis === 'Y' || a.upAxis === 'Z') ? a.upAxis : 'auto'; updateUpBtn();   // 還原方向模式
+  pvWire = false; $('pvWire').classList.remove('on');
+
+  let buf;
+  try { buf = await (await entryFile(a)).arrayBuffer(); }
+  catch(err){ $('pvInfo').innerHTML = kvRow('錯誤', '無法讀取檔案'); return; }
+
+  const miss = new Set();
+  const diag = { items:[] };
+  let model;
+  try { model = await loadFBXReady(buf, miss, diag, a.dir); }
+  catch(err){ $('pvInfo').innerHTML = kvRow('錯誤', 'FBX 解析失敗'); return; }
+
+  // 若使用者在載入期間已切換到別的資產,放棄這次結果
+  if (G.selected !== a.idx){ disposeObject(model); return; }
+
+  if (a.upAxisAuto == null) a.upAxisAuto = detectFBXUpAxis(buf) || 'Y';   // 偵測 FBX 座標系
+  updateUpBtn();
+
+  const texes = fixMaterials(model);
+  const stats = computeStats(model);
+  a.stats = stats; a.texCount = texes.length; a.missing = [...miss]; a.diag = diag;
+
+  // 套回此資產已記錄的手動貼圖覆寫
+  pvMaterials = collectMaterials(model);
+  await applyOverrides(pvMaterials, a.overrides);
+  if (G.selected !== a.idx){ disposeObject(model); return; }   // 覆寫載入期間可能又被切換
+  recountTextures();
+  a.materialCount = pvMaterials.length;
+  a.clips = (model.animations || []).map(c=>({ name:c.name || '', duration:+(c.duration||0).toFixed(3) }));
+  reviewEvaluate(a);
+  updateCard(a);
+
+  pvModel = model;
+  pvScene.add(model);
+  applyUpAxis();
+  pvFrameInfo = frameToCamera(model, pvCam, 1.5);
+  if (pvFrameInfo){ pvControls.target.copy(pvFrameInfo.center); pvControls.update(); }
+
+  // 動畫
+  const clips = model.animations || [];
+  setupClips(model, clips);
+
+  // 資訊面板
+  fillInfo(a, stats, clips);
+  renderReviewSection(a);
+  renderDiag(diag);
+  renderMaterialsUI(a.missing);
+}
+function setupClips(model, clips){
+  const playBtn = $('pvPlay'), sel = $('pvClip'), bar = $('pvTransport');
+  pvActions = []; pvCurAction = null;
+  if (clips.length){
+    pvMixer = new THREE.AnimationMixer(model);
+    sel.innerHTML = clips.map((c,i)=>{
+      const trim = c.__trimStart ? `  ⟜ 已修剪前置 ${c.__trimStart.toFixed(2)}s` : '';
+      return `<option value="${i}">${esc(c.name||('Clip '+i))} · ${c.duration.toFixed(2)}s${esc(trim)}</option>`;
+    }).join('');
+    bar.style.display = 'flex';
+    pvPlaying = true; playBtn.textContent = '❚❚';
+    playClipIndex(0);
+    const trimmed = clips.filter(c=>c.__trimStart);
+    if (trimmed.length){
+      const maxTrim = Math.max(...trimmed.map(c=>c.__trimStart));
+      toast(`已自動修剪 ${trimmed.length} 段動畫的前置空白(最多 ${maxTrim.toFixed(2)}s)`, 3500);
+    }
+  } else {
+    bar.style.display = 'none';
+    if (pvSeekEl){ pvSeekEl.value = 0; pvTimeEl.textContent = '0.00 / 0.00s'; }
+  }
+}
+function playClipIndex(i){
+  if (!pvMixer || !pvModel.animations[i]) return;
+  if (pvCurAction) pvCurAction.fadeOut(0.2);
+  const clip = pvModel.animations[i];
+  const a = pvMixer.clipAction(clip);
+  a.reset(); a.setLoop(THREE.LoopRepeat, Infinity); a.fadeIn(0.2).play();
+  pvCurAction = a;
+  if (pvSeekEl){
+    pvSeekEl.max = clip.duration || 1;
+    pvSeekEl.step = Math.max((clip.duration || 1) / 1000, 0.001);
+    pvSeekEl.value = 0;
+    pvTimeEl.textContent = '0.00 / ' + (clip.duration || 0).toFixed(2) + 's';
+  }
+}
+function fillInfo(a, s, clips){
+  const trimmed = clips.filter(c=>c.__trimStart);
+  const animVal = clips.length
+    ? `${clips.length} 個${trimmed.length ? `(修剪前置空白 ${trimmed.length} 段)` : ''}`
+    : '無';
+  const auto = a.upAxisAuto || 'Y';
+  let axisVal;
+  if (a.upAxis === 'Y' || a.upAxis === 'Z') axisVal = `${a.upAxis}-up(手動覆寫)`;
+  else axisVal = (auto === 'Z') ? 'Z-up(自動校正)' : `${auto}-up(自動,正立)`;
+  const rows = [
+    ['檔案', a.name],
+    ['路徑', a.dir || '(根目錄)'],
+    ['大小', fmtBytes(a.size)],
+    ['座標系', axisVal],
+    ['三角面', fmtNum(s.tris)],
+    ['頂點', fmtNum(s.verts)],
+    ['網格數', String(s.meshes)],
+    ['骨骼', String(s.bones)],
+    ['動畫', animVal],
+    ['貼圖', a.texCount ? `${a.texCount} 張` : (a.missing.length ? '缺失' : '無')],
+  ];
+  $('pvInfo').innerHTML = rows.map(([k,v])=>kvRow(k,v)).join('');
+}
+function kvRow(k,v){ return `<div class="kv"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`; }
+function renderReviewSection(a){
+  const sec = $('pvReviewSec'), wrap = $('pvReview');
+  if (!sec || !wrap) return;
+  if (!G.reviewMode){ sec.style.display = 'none'; return; }
+  sec.style.display = '';
+  let html = '';
+  // 達標判定
+  if (getSpec().enabled){
+    if (a.eval){
+      if (a.eval.pass) html += `<div class="rv-pass">✓ 達標</div>`;
+      else html += `<div class="rv-fail">✗ 未達標<ul>${a.eval.fails.map(f=>`<li>${esc(f)}</li>`).join('')}</ul></div>`;
+    } else html += `<div class="rv-muted">尚未分析(開啟即分析)</div>`;
+  }
+  // 版本差異
+  if (G.baseline){
+    if (!a.diff) html += `<div class="rv-muted">尚未分析,無法比對</div>`;
+    else if (a.diff.status === 'new') html += `<div class="rv-new">◆ 新檔(上一版沒有此模型)</div>`;
+    else if (a.diff.status === 'same') html += `<div class="rv-same">與上一版相同(無指標變化)</div>`;
+    else {
+      html += `<div class="rv-chg-title">與上一版差異</div><table class="rv-diff"><tr><th>項目</th><th>上一版</th><th>本版</th><th>Δ</th></tr>`;
+      a.diff.changes.forEach(c=>{
+        if (c.text){ html += `<tr><td>${esc(c.label)}</td><td colspan="3">${esc(c.text)}</td></tr>`; return; }
+        const fmt = c.unit === 'bytes' ? fmtBytes : fmtNum;
+        const up = c.delta > 0;
+        html += `<tr><td>${esc(c.label)}</td><td>${fmt(c.from)}</td><td>${fmt(c.to)}</td>
+          <td class="${up?'up':'down'}">${up?'▲':'▼'} ${c.unit==='bytes'?fmtBytes(Math.abs(c.delta)):fmtNum(Math.abs(c.delta))}</td></tr>`;
+      });
+      html += `</table>`;
+    }
+  }
+  if (!getSpec().enabled && !G.baseline)
+    html = `<div class="rv-muted">尚未設定驗收規格或載入版本基準。點頂部「驗收設定」。</div>`;
+  wrap.innerHTML = html;
+}
+function renderDiag(diag){
+  const wrap = $('pvDiag');
+  const items = (diag && diag.items) || [];
+  const ok = items.filter(i=>i.status==='ok');
+  const embedded = items.filter(i=>i.status==='embedded');
+  const notfound = dedupeNames(items.filter(i=>i.status==='notfound'));
+  const unsupported = dedupeNames(items.filter(i=>i.status==='unsupported'));
+  const failed = dedupeNames(items.filter(i=>i.status==='failed'));
+
+  if (!items.length){ wrap.innerHTML = `<div class="diag-ok">此模型沒有貼圖參照</div>`; return; }
+
+  let html = `<div class="diag-line"><span class="dpill ok">✓ 已套用 ${ok.length}</span>`;
+  if (embedded.length) html += `<span class="dpill emb">內嵌 ${embedded.length}</span>`;
+  if (notfound.length) html += `<span class="dpill bad">✗ 找不到 ${notfound.length}</span>`;
+  if (failed.length) html += `<span class="dpill bad">⚠ 解碼失敗 ${failed.length}</span>`;
+  if (unsupported.length) html += `<span class="dpill warn">格式不支援 ${unsupported.length}</span>`;
+  html += `</div>`;
+
+  if (notfound.length) html += diagBlock('✗ 資料夾中找不到對應檔案', notfound,
+    '原因通常是 FBX 內貼圖檔名與實際檔案不同(被改名),或貼圖根本沒在這個資料夾。可用下方材質欄手動上載。');
+  if (failed.length) html += diagBlock('⚠ 有配對到檔案但解碼失敗', failed,
+    '檔案存在但無法解碼(可能是損毀、或 DDS/TGA 的特殊壓縮格式)。');
+  if (unsupported.length) html += diagBlock('⚠ 前端無法解碼的格式', unsupported,
+    'TIFF / PSD / EXR / HDR 無法在瀏覽器直接顯示。請先轉成 PNG/JPG/TGA/DDS,或用下方材質欄手動上載轉檔後的圖。');
+
+  if (!notfound.length && !failed.length && !unsupported.length)
+    html += `<div class="diag-ok">所有貼圖皆正確套用 ✓</div>`;
+  wrap.innerHTML = html;
+}
+function dedupeNames(items){
+  const seen = new Set(); const out = [];
+  items.forEach(i=>{ const n = i.raw || i.base; if (!seen.has(n)){ seen.add(n); out.push(n); } });
+  return out;
+}
+function diagBlock(title, names, note){
+  return `<div class="diag-block"><div class="dbt">${esc(title)}</div>
+    <div class="dbn">${names.slice(0,12).map(esc).join('<br>')}${names.length>12?'<br>… 共 '+names.length+' 個':''}</div>
+    <div class="dbnote">${esc(note)}</div></div>`;
+}
+/* 材質 / 可上載貼圖槽 */
+const TEX_SLOTS = [
+  { key:'map',          label:'基礎色', cs:'srgb'   },
+  { key:'normalMap',    label:'法線',   cs:'linear' },
+  { key:'roughnessMap', label:'粗糙',   cs:'linear' },
+  { key:'metalnessMap', label:'金屬',   cs:'linear' },
+  { key:'specularMap',  label:'高光',   cs:'linear' },
+  { key:'emissiveMap',  label:'自發光', cs:'srgb'   },
+  { key:'aoMap',        label:'AO',     cs:'linear' },
+  { key:'alphaMap',     label:'透明',   cs:'linear' },
+];
+function collectMaterials(root){
+  const seen = new Map();
+  root.traverse(o=>{
+    if (!o.isMesh) return;
+    const mats = Array.isArray(o.material) ? o.material : [o.material];
+    mats.forEach(m=>{ if (m && !seen.has(m.uuid)) seen.set(m.uuid, m); });
+  });
+  return [...seen.values()];
+}
+function renderMaterialsUI(missing){
+  const wrap = $('pvMats');
+  let html = '';
+  pvMaterials.forEach((mat, mi)=>{
+    const type = (mat.type || 'Material').replace('Mesh','').replace('Material','') || 'Mat';
+    const slots = TEX_SLOTS.filter(s => (s.key in mat));   // 依材質類型過濾有效槽位
+    html += `<div class="matblk"><div class="mh">
+      <span class="mn" title="${esc(mat.name || ('材質 '+mi))}">${esc(mat.name || ('材質 '+mi))}</span>
+      <span class="mt">${esc(type)}</span></div><div class="slots">`;
+    slots.forEach(s=>{
+      const tex = mat[s.key];
+      const src = tex ? texToDataURL(tex) : null;
+      html += `<div class="slot">
+        <div class="sw2 ${tex?'has':''}" data-mi="${mi}" data-slot="${s.key}" data-cs="${s.cs}" title="點擊上載「${esc(s.label)}」貼圖">
+          ${src ? `<img src="${src}">` : `<span class="plus">＋</span>`}
+          ${tex ? `<button class="clr" data-mi="${mi}" data-slot="${s.key}" title="清除">×</button>` : ''}
+        </div><span class="sl">${esc(s.label)}</span></div>`;
+    });
+    html += `</div></div>`;
+  });
+  if (missing && missing.length){
+    html += `<div class="miss-note">⚠ 資料夾中找不到 ${missing.length} 個原始貼圖,可用上方欄位手動上載:<br>${missing.slice(0,8).map(esc).join('<br>')}${missing.length>8?'<br>…':''}</div>`;
+  }
+  if (!pvMaterials.length) html = `<div style="color:var(--dim);font-size:11.5px">此模型沒有材質</div>`;
+  wrap.innerHTML = html;
+  wrap.querySelectorAll('.sw2').forEach(el=>{
+    el.addEventListener('click', e=>{
+      if (e.target.classList.contains('clr')) return;
+      pendingSlot = { mi:+el.dataset.mi, slot:el.dataset.slot, cs:el.dataset.cs };
+      texInput.click();
+    });
+  });
+  wrap.querySelectorAll('.clr').forEach(el=>{
+    el.addEventListener('click', e=>{ e.stopPropagation(); clearSlot(+el.dataset.mi, el.dataset.slot); });
+  });
+}
+/* 隱藏的貼圖上載 input（重複使用） */
+const texInput = document.createElement('input');
+texInput.type = 'file'; texInput.accept = 'image/*,.tga,.dds'; texInput.style.display = 'none';
+document.body.appendChild(texInput);
+texInput.addEventListener('change', async ()=>{
+  const file = texInput.files && texInput.files[0];
+  texInput.value = '';
+  if (!file || !pendingSlot) return;
+  const { mi, slot, cs } = pendingSlot; pendingSlot = null;
+  const mat = pvMaterials[mi]; if (!mat) return;
+  try{
+    const ext = (file.name.split('.').pop() || '').toLowerCase();
+    const data = await readAsDataURL(file);             // 內嵌存檔用
+    const tex = await makeTextureFromData(data, ext, cs);
+    if (mat[slot] && mat[slot].isTexture) mat[slot].dispose();
+    mat[slot] = tex;
+    if (slot === 'alphaMap'){ mat.transparent = true; }
+    mat.needsUpdate = true;
+    recordOverride(mi, slot, { name:file.name, cs, ext, data });   // 記住此覆寫
+    recountTextures();
+    renderMaterialsUI(G.curAsset ? G.curAsset.missing : []);
+    markDirty();
+    toast(`已套用「${file.name}」`);
+  }catch(err){ toast(err.message || '貼圖載入失敗', 3500); }
+});
+function readAsDataURL(file){
+  return new Promise((res, rej)=>{
+    const r = new FileReader();
+    r.onload = ()=>res(r.result);
+    r.onerror = ()=>rej(r.error || new Error('讀取失敗'));
+    r.readAsDataURL(file);
+  });
+}
+function makeTextureFromData(data, ext, cs){
+  return new Promise((resolve, reject)=>{
+    const onTex = tex=>{
+      tex.colorSpace = (cs === 'srgb') ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+      tex.anisotropy = 4;
+      if (ext !== 'dds') tex.flipY = true;               // 壓縮貼圖不可在 GPU 翻轉
+      tex.needsUpdate = true;
+      resolve(tex);
+    };
+    const onErr = ()=>reject(new Error('貼圖載入失敗'));
+    if (ext === 'tga') new TGALoader().load(data, onTex, undefined, onErr);
+    else if (ext === 'dds') new DDSLoader().load(data, onTex, undefined, onErr);
+    else new THREE.TextureLoader().load(data, onTex, undefined, onErr);
+  });
+}
+function recordOverride(mi, slot, entry){
+  const a = G.curAsset; if (!a) return;
+  a.overrides = a.overrides || {};
+  a.overrides[mi] = a.overrides[mi] || {};
+  a.overrides[mi][slot] = entry;
+}
+/* 將已記錄的覆寫套回剛載入的材質（切換模型 / 載入專案後還原） */
+async function applyOverrides(mats, overrides){
+  if (!overrides) return;
+  for (const miStr in overrides){
+    const mat = mats[+miStr]; if (!mat) continue;
+    const slots = overrides[miStr];
+    for (const slot in slots){
+      const e = slots[slot];
+      if (e && e.cleared){
+        if (mat[slot] && mat[slot].isTexture) mat[slot].dispose();
+        mat[slot] = null;
+        if (slot === 'alphaMap') mat.transparent = false;
+        mat.needsUpdate = true;
+        continue;
+      }
+      if (!(slot in mat) || !e || !e.data) continue;
+      try{
+        const tex = await makeTextureFromData(e.data, e.ext, e.cs);
+        if (mat[slot] && mat[slot].isTexture) mat[slot].dispose();
+        mat[slot] = tex;
+        if (slot === 'alphaMap') mat.transparent = true;
+        mat.needsUpdate = true;
+      }catch(_){ /* 損毀的覆寫忽略 */ }
+    }
+  }
+}
+function clearSlot(mi, slot){
+  const mat = pvMaterials[mi]; if (!mat) return;
+  if (mat[slot] && mat[slot].isTexture) mat[slot].dispose();
+  mat[slot] = null;
+  if (slot === 'alphaMap') mat.transparent = false;
+  mat.needsUpdate = true;
+  recordOverride(mi, slot, { cleared:true });            // 記住「清除」也是一種覆寫
+  recountTextures();
+  renderMaterialsUI(G.curAsset ? G.curAsset.missing : []);
+  markDirty();
+}
+function recountTextures(){
+  if (!G.curAsset) return;
+  const set = new Set();
+  pvMaterials.forEach(m=>TEX_SLOTS.forEach(s=>{
+    const t = m[s.key];
+    if (t && t.isTexture && t.image) set.add(t.uuid);
+  }));
+  G.curAsset.texCount = set.size;
+  updateCard(G.curAsset);
+}
+function texName(tex){
+  if (tex.image && tex.image.src){
+    const src = tex.image.src;
+    if (G.fileIndex.blobName.has(src)) return G.fileIndex.blobName.get(src);
+    const b = basename(src.split('?')[0]);
+    if (b && !src.startsWith('blob:') && !src.startsWith('data:')) return decodeURIComponent(b);
+  }
+  return tex.name || '(外部/內嵌貼圖)';
+}
+let texCanvas;
+function texToDataURL(tex){
+  try{
+    const img = tex.image;
+    if (!img) return null;
+    if (!texCanvas) texCanvas = document.createElement('canvas');
+    const S = 48; texCanvas.width = S; texCanvas.height = S;
+    const ctx = texCanvas.getContext('2d');
+    ctx.clearRect(0,0,S,S);
+    if (img instanceof HTMLImageElement || img instanceof HTMLCanvasElement || img instanceof ImageBitmap){
+      ctx.drawImage(img, 0, 0, S, S);
+    } else if (img.data && img.width){    // TGALoader → ImageData-like {data,width,height}
+      const tmp = document.createElement('canvas'); tmp.width = img.width; tmp.height = img.height;
+      const idata = new ImageData(new Uint8ClampedArray(img.data), img.width, img.height);
+      tmp.getContext('2d').putImageData(idata, 0, 0);
+      ctx.drawImage(tmp, 0, 0, S, S);
+    } else return null;
+    return texCanvas.toDataURL('image/png');
+  }catch(_){ return null; }
+}
+
+/* 方向(座標系)控制:自動 / Y↑ / Z↑ 三段循環,自動=依 FBX 偵測 */
+function currentEffectiveAxis(){
+  if (pvUpMode === 'Y' || pvUpMode === 'Z') return pvUpMode;
+  return (G.curAsset && G.curAsset.upAxisAuto) || 'Y';        // 自動
+}
+function updateUpBtn(){
+  const eff = currentEffectiveAxis();
+  const auto = (G.curAsset && G.curAsset.upAxisAuto) || 'Y';
+  $('pvUp').textContent = pvUpMode === 'auto' ? `自動 ${eff}↑` : `${pvUpMode}↑`;
+  $('pvUp').classList.toggle('on', pvUpMode !== 'auto');
+  $('pvUp').title = `方向:自動 / Y↑ / Z↑ 循環。自動 = 依 FBX 座標系(偵測為 ${auto}-up)`;
+}
+function applyUpAxis(){
+  if (!pvModel) return;
+  pvModel.rotation.x = (currentEffectiveAxis() === 'Z') ? -Math.PI/2 : 0;
+}
+$('pvUp').addEventListener('click', ()=>{
+  pvUpMode = pvUpMode === 'auto' ? 'Y' : (pvUpMode === 'Y' ? 'Z' : 'auto');
+  if (G.curAsset){ G.curAsset.upAxis = (pvUpMode === 'auto') ? null : pvUpMode; markDirty(); }
+  updateUpBtn();
+  applyUpAxis();
+  if (pvModel){ pvFrameInfo = frameToCamera(pvModel, pvCam, 1.5); pvControls.target.copy(pvFrameInfo.center); pvControls.update(); }
+  if (G.curAsset) renderReviewSection(G.curAsset);
+});
+$('pvWire').addEventListener('click', ()=>{
+  pvWire = !pvWire; $('pvWire').classList.toggle('on', pvWire);
+  if (pvModel) pvModel.traverse(o=>{ if (o.isMesh){
+    const mats = Array.isArray(o.material)?o.material:[o.material];
+    mats.forEach(m=>{ if (m) m.wireframe = pvWire; });
+  }});
+});
+$('pvFrame').addEventListener('click', ()=>{
+  if (!pvModel) return;
+  pvFrameInfo = frameToCamera(pvModel, pvCam, 1.5);
+  pvControls.target.copy(pvFrameInfo.center); pvControls.update();
+});
+$('pvPlay').addEventListener('click', ()=>{
+  pvPlaying = !pvPlaying;
+  $('pvPlay').textContent = pvPlaying ? '❚❚' : '▶';
+});
+$('pvClip').addEventListener('change', e=>{ pvPlaying = true; $('pvPlay').textContent='❚❚'; playClipIndex(+e.target.value); });
+$('pvSeek').addEventListener('input', e=>{
+  if (!pvCurAction || !pvMixer) return;
+  pvSeeking = true;
+  pvCurAction.paused = false;
+  pvCurAction.time = parseFloat(e.target.value);
+  pvMixer.update(0);                       // delta 0：套用該時間點姿勢但不前進
+  const d = pvCurAction.getClip().duration || 1;
+  pvTimeEl.textContent = pvCurAction.time.toFixed(2) + ' / ' + d.toFixed(2) + 's';
+});
+$('pvSeek').addEventListener('change', ()=>{ pvSeeking = false; });
+$('pvSeek').addEventListener('pointerdown', ()=>{ pvSeeking = true; });
+$('pvSeek').addEventListener('pointerup',   ()=>{ pvSeeking = false; });
+$('pvClose').addEventListener('click', closePreview);
+$('pvReload').addEventListener('click', ()=>{ if (G.selected >= 0) loadIntoPreview(G.assets[G.selected]); });
+
+/* ───────── 版面調整(寬度 / 高度 / 最大化) ───────── */
+const PV_DEFAULT_W = 520, PV_DEFAULT_H = 340;
+let layoutDrag = null;
+
+function setPreviewWidth(px){
+  const w = Math.max(340, Math.min(px, window.innerWidth - 240));
+  const p = $('preview');
+  p.style.flexBasis = w + 'px';
+  p.style.width = w + 'px';
+}
+function setViewportHeight(px){
+  const wrap = $('pvVpWrap');
+  const previewH = $('preview').clientHeight;
+  const h = Math.max(180, Math.min(px, previewH - 150));
+  wrap.style.height = h + 'px';
+}
+
+$('pvGripX').addEventListener('pointerdown', e=>{
+  if ($('preview').classList.contains('max')) return;
+  layoutDrag = { kind:'x', startX:e.clientX, startW:$('preview').getBoundingClientRect().width };
+  $('pvGripX').classList.add('drag'); $('preview').classList.add('dragging');
+  $('pvGripX').setPointerCapture(e.pointerId);
+  document.body.style.cursor = 'col-resize';
+});
+$('pvGripY').addEventListener('pointerdown', e=>{
+  if ($('preview').classList.contains('max')) return;
+  layoutDrag = { kind:'y', startY:e.clientY, startH:$('pvVpWrap').getBoundingClientRect().height };
+  $('pvGripY').classList.add('drag');
+  $('pvGripY').setPointerCapture(e.pointerId);
+  document.body.style.cursor = 'row-resize';
+});
+window.addEventListener('pointermove', e=>{
+  if (!layoutDrag) return;
+  if (layoutDrag.kind === 'x') setPreviewWidth(layoutDrag.startW - (e.clientX - layoutDrag.startX)); // 面板在右,往左拖變寬
+  else setViewportHeight(layoutDrag.startH + (e.clientY - layoutDrag.startY));
+});
+window.addEventListener('pointerup', ()=>{
+  if (!layoutDrag) return;
+  layoutDrag = null;
+  $('pvGripX').classList.remove('drag'); $('pvGripY').classList.remove('drag');
+  $('preview').classList.remove('dragging');
+  document.body.style.cursor = '';
+});
+$('pvGripX').addEventListener('dblclick', ()=> setPreviewWidth(PV_DEFAULT_W));
+$('pvGripY').addEventListener('dblclick', ()=>{ $('pvVpWrap').style.height = PV_DEFAULT_H + 'px'; });
+
+function toggleMax(force){
+  const p = $('preview');
+  const on = force != null ? force : !p.classList.contains('max');
+  p.classList.toggle('max', on);
+  $('pvMax').classList.toggle('on', on);
+  $('pvMax').textContent = on ? '還原' : '放大';
+  $('pvMax').title = on ? '還原檢視(Esc)' : '最大化檢視(Esc 退出)';
+}
+$('pvMax').addEventListener('click', ()=>toggleMax());
+window.addEventListener('keydown', e=>{
+  if (e.key === 'Escape' && $('preview').classList.contains('max')) toggleMax(false);
+});
+
+/* ───────── 事件接線 ───────── */
+$('pickBtn').addEventListener('click', ()=>pickDirectory().catch(e=>toast('開啟資料夾失敗:'+e.message, 4000)));
+$('pickBtn2').addEventListener('click', ()=>pickDirectory().catch(e=>toast('開啟資料夾失敗:'+e.message, 4000)));
+$('rescanBtn').addEventListener('click', ()=>{
+  // 重新掃描：用既有 entries 重建（FSA handle 才能真正重讀；input 模式提示重選）
+  if (G.entries.length){ ingest(G.entries, G.rootName); }
+});
+$('search').addEventListener('input', debounce(renderGrid, 160));
+$('sortSel').addEventListener('change', renderGrid);
+$('texOnly').addEventListener('change', renderGrid);
+$('reviewBtn').addEventListener('click', toggleReviewMode);
+$('reviewFilterSel').addEventListener('change', renderGrid);
+$('analyzeAllBtn').addEventListener('click', analyzeAll);
+$('specBtn').addEventListener('click', openSpecModal);
+$('loadBaseBtn').addEventListener('click', ()=>baseInput.click());
+$('saveBaseBtn').addEventListener('click', saveBaseline);
+$('reportBtn').addEventListener('click', exportReport);
+$('specClose').addEventListener('click', closeSpecModal);
+$('specCancel').addEventListener('click', closeSpecModal);
+$('specSave').addEventListener('click', saveSpecFromModal);
+$('specModal').addEventListener('click', e=>{ if (e.target === $('specModal')) closeSpecModal(); });
+function debounce(fn, ms){ let t; return (...a)=>{ clearTimeout(t); t = setTimeout(()=>fn(...a), ms); }; }
+
+/* ───────── 驗收 / 版本比對 ───────── */
+function getSpec(){ return G.spec || (G.spec = { ...DEFAULT_SPEC }); }
+function snapshotOf(a){
+  const s = a.stats || {};
+  return {
+    tris:s.tris|0, verts:s.verts|0, meshes:s.meshes|0, bones:s.bones|0,
+    materialCount:a.materialCount|0, texCount:a.texCount|0, missing:(a.missing||[]).length,
+    clips:(a.clips||[]).map(c=>({ name:c.name, duration:c.duration })), size:a.size||0,
+  };
+}
+function evaluateSpec(a){
+  const sp = getSpec();
+  if (!sp.enabled || !a.stats) return null;
+  const fails = [];
+  const s = a.stats;
+  if (sp.maxTris != null && s.tris > sp.maxTris) fails.push(`三角面 ${fmtNum(s.tris)} 超過上限 ${fmtNum(sp.maxTris)}`);
+  if (sp.minBones != null && s.bones < sp.minBones) fails.push(`骨骼 ${s.bones} 少於下限 ${sp.minBones}`);
+  if (sp.maxBones != null && s.bones > sp.maxBones) fails.push(`骨骼 ${s.bones} 超過上限 ${sp.maxBones}`);
+  if (sp.maxMaterials != null && (a.materialCount|0) > sp.maxMaterials) fails.push(`材質 ${a.materialCount} 超過上限 ${sp.maxMaterials}`);
+  if (sp.requireTextures && (a.missing||[]).length) fails.push(`貼圖缺失 ${a.missing.length} 個`);
+  if (sp.requireTextures && !(a.texCount>0) && !(a.missing||[]).length) fails.push('沒有任何貼圖');
+  if (sp.upAxis && sp.upAxis !== 'any'){
+    const ax = effectiveUpAxis(a);
+    if (ax !== sp.upAxis) fails.push(`up 軸為 ${ax},要求 ${sp.upAxis}`);
+  }
+  if (sp.nameRegex){
+    try{ if (!new RegExp(sp.nameRegex).test(a.name)) fails.push(`檔名不符規則 /${sp.nameRegex}/`); }catch(_){}
+  }
+  if (sp.requiredClips && sp.requiredClips.length){
+    const names = (a.clips||[]).map(c=>c.name.toLowerCase());
+    sp.requiredClips.forEach(req=>{
+      const r = req.trim().toLowerCase(); if (!r) return;
+      if (!names.some(n=>n.includes(r))) fails.push(`缺少必要動畫「${req.trim()}」`);
+    });
+  }
+  return { pass: fails.length === 0, fails };
+}
+function diffVsBaseline(a){
+  if (!G.baseline || !G.baseline.assets) return null;
+  const base = G.baseline.assets[a.path];
+  if (!base) return { status:'new', changes:[] };
+  if (!a.stats) return null;
+  const cur = snapshotOf(a);
+  const changes = [];
+  const cmp = (label, from, to, unit='')=>{ if (from !== to) changes.push({ label, from, to, delta:to-from, unit }); };
+  cmp('三角面', base.tris, cur.tris);
+  cmp('頂點', base.verts, cur.verts);
+  cmp('網格', base.meshes, cur.meshes);
+  cmp('骨骼', base.bones, cur.bones);
+  cmp('材質', base.materialCount, cur.materialCount);
+  cmp('貼圖', base.texCount, cur.texCount);
+  cmp('缺圖', base.missing, cur.missing);
+  cmp('大小', base.size, cur.size, 'bytes');
+  // 動畫剪輯增刪
+  const bNames = new Set((base.clips||[]).map(c=>c.name));
+  const cNames = new Set((cur.clips||[]).map(c=>c.name));
+  const added = [...cNames].filter(n=>!bNames.has(n));
+  const removed = [...bNames].filter(n=>!cNames.has(n));
+  if (added.length) changes.push({ label:'新增動畫', text:added.join(', ') });
+  if (removed.length) changes.push({ label:'移除動畫', text:removed.join(', ') });
+  return { status: changes.length ? 'changed' : 'same', changes };
+}
+function reviewEvaluate(a){
+  a.eval = evaluateSpec(a);
+  a.diff = diffVsBaseline(a);
+  updateCard(a);
+  updateReviewSummary();
+  if (G.selected === a.idx && $('preview').classList.contains('open')) renderReviewSection(a);
+}
+function reevaluateAll(){
+  G.assets.forEach(a=>{ a.eval = evaluateSpec(a); a.diff = diffVsBaseline(a); });
+  renderGrid(); updateReviewSummary();
+  if (G.curAsset) renderReviewSection(G.curAsset);
+}
+function updateReviewSummary(){
+  const bar = $('reviewSummary');
+  if (!bar) return;
+  if (!G.reviewMode){ bar.style.display = 'none'; return; }
+  bar.style.display = 'flex';
+  const analyzed = G.assets.filter(a=>a.stats);
+  const pass = analyzed.filter(a=>a.eval && a.eval.pass).length;
+  const fail = analyzed.filter(a=>a.eval && !a.eval.pass).length;
+  const changed = analyzed.filter(a=>a.diff && a.diff.status === 'changed').length;
+  const neu = analyzed.filter(a=>a.diff && a.diff.status === 'new').length;
+  const pending = G.assets.length - analyzed.length;
+  let removed = 0;
+  if (G.baseline && G.baseline.assets){
+    const cur = new Set(G.assets.map(a=>a.path));
+    removed = Object.keys(G.baseline.assets).filter(p=>!cur.has(p)).length;
+  }
+  let html = '';
+  if (getSpec().enabled){
+    html += `<span class="rp ok">達標 ${pass}</span><span class="rp bad">未達標 ${fail}</span>`;
+  }
+  if (G.baseline){
+    html += `<span class="rp chg">變更 ${changed}</span>`;
+    if (neu) html += `<span class="rp new">新檔 ${neu}</span>`;
+    if (removed) html += `<span class="rp bad">缺少上版 ${removed}</span>`;
+  }
+  if (pending) html += `<span class="rp muted">未分析 ${pending}</span>`;
+  if (!G.baseline && !getSpec().enabled) html += `<span class="rp muted">尚未設定規格或基準</span>`;
+  bar.innerHTML = html;
+}
+
+/* 批次分析全部(把每個未分析的模型跑過一次以取得指標) */
+let analyzing = false;
+async function analyzeAll(){
+  if (analyzing) return;
+  analyzing = true;
+  const pend = G.assets.filter(a=>!a.stats && a.state !== 'error' && a.state !== 'loading' && a.state !== 'queued');
+  if (!pend.length){ analyzing = false; toast('所有模型皆已分析'); reevaluateAll(); return; }
+  toast(`開始分析 ${pend.length} 個模型…`, 2500);
+  let done = 0;
+  for (const a of pend){
+    if (a.stats) { done++; continue; }
+    try { await buildThumb(a); }
+    catch(err){ a.state = 'error'; a.error = err.message || String(err); }
+    updateCard(a);
+    done++;
+    if (done % 5 === 0 || done === pend.length) toast(`分析中… ${done}/${pend.length}`, 1500);
+  }
+  analyzing = false;
+  reevaluateAll();
+  toast(`分析完成:${pend.length} 個模型`);
+}
+
+/* 基準(baseline)存 / 讀 */
+function saveBaseline(){
+  const analyzed = G.assets.filter(a=>a.stats);
+  if (!analyzed.length){ toast('尚無已分析的模型。請先「分析全部」'); return; }
+  const assets = {};
+  analyzed.forEach(a=>{ assets[a.path] = snapshotOf(a); });
+  const base = { app:'fbx-asset-manager', kind:'baseline', version:1,
+    savedAt:new Date().toISOString(), rootName:G.rootName, assets };
+  const json = JSON.stringify(base);
+  const blob = new Blob([json], { type:'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  const stamp = new Date().toISOString().slice(0,10);
+  link.href = url; link.download = (G.rootName || 'baseline') + '_' + stamp + '.fbxbaseline.json';
+  link.click();
+  setTimeout(()=>URL.revokeObjectURL(url), 1000);
+  toast(`已存為驗收基準:${analyzed.length} 個模型`);
+}
+const baseInput = document.createElement('input');
+baseInput.type = 'file'; baseInput.accept = '.json,application/json'; baseInput.style.display = 'none';
+document.body.appendChild(baseInput);
+baseInput.addEventListener('change', async ()=>{
+  const f = baseInput.files && baseInput.files[0]; baseInput.value = '';
+  if (!f) return;
+  let base;
+  try { base = JSON.parse(await f.text()); }
+  catch(_){ toast('基準檔解析失敗', 3500); return; }
+  if (!base || base.kind !== 'baseline'){ if (!confirm('這似乎不是基準檔,仍要載入?')) return; }
+  G.baseline = base;
+  G.reviewMode = true; syncReviewUI();
+  reevaluateAll();
+  const bn = Object.keys(base.assets||{}).length;
+  toast(`已載入基準(${bn} 個模型)。開始比對差異。`, 3500);
+});
+
+/* 匯出驗收報告(CSV) */
+function exportReport(){
+  const analyzed = G.assets.filter(a=>a.stats);
+  if (!analyzed.length){ toast('尚無已分析的模型'); return; }
+  const rows = [['路徑','檔名','達標','未達原因','三角面','骨骼','材質','貼圖','缺圖','動畫數','版本狀態','差異']];
+  analyzed.forEach(a=>{
+    const ev = a.eval, df = a.diff, s = a.stats;
+    const diffTxt = df && df.changes && df.changes.length
+      ? df.changes.map(c=> c.text ? `${c.label}:${c.text}` : `${c.label} ${c.from}→${c.to}`).join(' / ')
+      : '';
+    rows.push([
+      a.dir || '', a.name,
+      ev ? (ev.pass ? '達標' : '未達標') : '未檢查',
+      ev && ev.fails ? ev.fails.join(' ; ') : '',
+      s.tris, s.bones, a.materialCount|0, a.texCount|0, (a.missing||[]).length,
+      (a.clips||[]).length,
+      df ? ({ same:'無變更', changed:'有變更', new:'新檔' }[df.status] || '') : '(無基準)',
+      diffTxt,
+    ]);
+  });
+  // baseline 中已消失的檔案
+  if (G.baseline && G.baseline.assets){
+    const cur = new Set(G.assets.map(a=>a.path));
+    Object.keys(G.baseline.assets).filter(p=>!cur.has(p)).forEach(p=>{
+      rows.push([dirname(p), basename(p), '缺少', '上一版存在但本版缺少', '', '', '', '', '', '', '移除', '']);
+    });
+  }
+  const csv = '\ufeff' + rows.map(r=>r.map(csvCell).join(',')).join('\r\n');
+  const blob = new Blob([csv], { type:'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  const stamp = new Date().toISOString().slice(0,10);
+  link.href = url; link.download = (G.rootName || 'review') + '_驗收報告_' + stamp + '.csv';
+  link.click();
+  setTimeout(()=>URL.revokeObjectURL(url), 1000);
+  toast('已匯出驗收報告 CSV');
+}
+function csvCell(v){
+  const s = String(v == null ? '' : v);
+  return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s;
+}
+
+/* 驗收模式 UI 開關 / 規格編輯 */
+function syncReviewUI(){
+  $('reviewBtn').classList.toggle('on', G.reviewMode);
+  $('reviewFilters').style.display = G.reviewMode ? 'flex' : 'none';
+  updateReviewSummary();
+  renderGrid();
+}
+function toggleReviewMode(){ G.reviewMode = !G.reviewMode; syncReviewUI(); }
+
+function openSpecModal(){
+  const sp = getSpec();
+  $('spEnabled').checked = sp.enabled;
+  $('spMaxTris').value = sp.maxTris ?? '';
+  $('spMinBones').value = sp.minBones ?? '';
+  $('spMaxBones').value = sp.maxBones ?? '';
+  $('spMaxMats').value = sp.maxMaterials ?? '';
+  $('spReqTex').checked = sp.requireTextures;
+  $('spClips').value = (sp.requiredClips || []).join(', ');
+  $('spUpAxis').value = sp.upAxis || 'any';
+  $('spName').value = sp.nameRegex || '';
+  $('specModal').classList.add('open');
+}
+function closeSpecModal(){ $('specModal').classList.remove('open'); }
+function saveSpecFromModal(){
+  const num = el=>{ const v = $(el).value.trim(); return v === '' ? null : (isFinite(+v) ? +v : null); };
+  G.spec = {
+    ...getSpec(),
+    enabled: $('spEnabled').checked,
+    maxTris: num('spMaxTris'), minBones: num('spMinBones'), maxBones: num('spMaxBones'),
+    maxMaterials: num('spMaxMats'),
+    requireTextures: $('spReqTex').checked,
+    requiredClips: $('spClips').value.split(',').map(s=>s.trim()).filter(Boolean),
+    upAxis: $('spUpAxis').value,
+    nameRegex: $('spName').value.trim(),
+  };
+  closeSpecModal();
+  G.reviewMode = true; syncReviewUI();
+  reevaluateAll();
+  markDirty();
+  toast('已套用驗收規格');
+}
+
+/* ───────── 專案狀態(JSON) ───────── */
+function markDirty(){ G.dirty = true; updateDirty(); }
+function updateDirty(){ $('dirtyDot').classList.toggle('on', !!G.dirty); }
+
+function saveProject(){
+  if (!G.assets.length){ toast('尚未載入資料夾'); return; }
+  const assets = {};
+  G.assets.forEach(a=>{
+    const hasOv = a.overrides && Object.keys(a.overrides).length;
+    const hasAxis = a.upAxis === 'Y' || a.upAxis === 'Z';
+    if (!hasOv && !hasAxis) return;
+    const rec = {};
+    if (hasAxis) rec.upAxis = a.upAxis;
+    if (hasOv)   rec.overrides = a.overrides;
+    assets[a.path] = rec;
+  });
+  const proj = {
+    app:'fbx-asset-manager', version:1,
+    savedAt:new Date().toISOString(),
+    rootName:G.rootName,
+    ui:{ sort:$('sortSel').value, texOnly:$('texOnly').checked, search:$('search').value },
+    spec: G.spec || null,
+    assets,
+  };
+  const json = JSON.stringify(proj);
+  const blob = new Blob([json], { type:'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  const stamp = new Date().toISOString().slice(0,10);
+  link.href = url; link.download = (G.rootName || 'project') + '_' + stamp + '.fbxproj.json';
+  link.click();
+  setTimeout(()=>URL.revokeObjectURL(url), 1000);
+  G.dirty = false; updateDirty();
+  const n = Object.keys(assets).length;
+  const mb = (json.length / 1048576).toFixed(2);
+  toast(`已儲存專案:${n} 個模型有自訂狀態(${mb} MB)`);
+}
+
+const projInput = document.createElement('input');
+projInput.type = 'file'; projInput.accept = '.json,application/json'; projInput.style.display = 'none';
+document.body.appendChild(projInput);
+projInput.addEventListener('change', async ()=>{
+  const file = projInput.files && projInput.files[0];
+  projInput.value = '';
+  if (file) loadProjectFile(file);
+});
+async function loadProjectFile(file){
+  let proj;
+  try { proj = JSON.parse(await file.text()); }
+  catch(_){ toast('專案檔解析失敗', 3500); return; }
+  if (!proj || proj.app !== 'fbx-asset-manager'){
+    if (!confirm('這似乎不是本工具的專案檔,仍要嘗試載入?')) return;
+  }
+  G.pendingProject = proj.assets || {};
+  if (proj.spec){ G.spec = { ...DEFAULT_SPEC, ...proj.spec }; G.reviewMode = true; syncReviewUI(); }
+  if (proj.ui){
+    if (proj.ui.sort) $('sortSel').value = proj.ui.sort;
+    $('texOnly').checked = !!proj.ui.texOnly;
+    if (proj.ui.search != null) $('search').value = proj.ui.search;
+  }
+  if (!G.assets.length){
+    toast(`已讀取專案(${Object.keys(G.pendingProject).length} 項)。請接著選擇「${proj.rootName || '對應'}」資料夾以套用。`, 6000);
+  } else {
+    const n = applyPendingProject();
+    toast(n ? `已套用專案到 ${n} 個模型` : '專案中沒有對應目前資料夾的模型');
+  }
+}
+function applyPendingProject(){
+  if (!G.pendingProject) return 0;
+  let n = 0;
+  G.assets.forEach(a=>{
+    const rec = G.pendingProject[a.path];
+    if (!rec) return;
+    if (rec.overrides) a.overrides = rec.overrides;
+    if (rec.upAxis)    a.upAxis = rec.upAxis;
+    a.state = 'pending'; a.thumb = null;    // 縮圖重生以反映覆寫
+    n++;
+  });
+  if (n){
+    renderGrid();
+    if (G.selected >= 0 && $('preview').classList.contains('open')) loadIntoPreview(G.assets[G.selected]);
+  }
+  G.dirty = false; updateDirty();
+  return n;
+}
+$('saveProjBtn').addEventListener('click', saveProject);
+$('loadProjBtn').addEventListener('click', ()=>projInput.click());
+window.addEventListener('keydown', e=>{
+  if ((e.ctrlKey || e.metaKey) && e.key === 's'){ e.preventDefault(); if (!$('saveProjBtn').disabled) saveProject(); }
+});
+
+window.addEventListener('beforeunload', e=>{
+  G.blobURLs.forEach(u=>URL.revokeObjectURL(u));
+  if (G.dirty){ e.preventDefault(); e.returnValue = ''; }   // 有未儲存變更時提醒
+});
+</script>
+</body>
+</html>
