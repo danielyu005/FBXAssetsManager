@@ -270,6 +270,9 @@
   .dpill.bad{ color:var(--bad); border-color:#4a2f2f; }
   .dpill.warn{ color:#E6B450; border-color:#4a4129; }
   .diag-ok{ color:var(--good); font-size:11.5px; }
+  .rv-repair{ border-left:2px solid var(--accent); padding:5px 0 5px 9px; margin:2px 0 8px; font-size:11.5px; color:var(--text); }
+  .rv-repair ul{ margin:4px 0; padding-left:18px; font-family:var(--mono); font-size:10.5px; color:var(--muted); }
+  .rv-repair-note{ font-size:10.5px; color:var(--dim); }
   .diag-block{ border-left:2px solid var(--bad); padding:5px 0 5px 9px; margin:8px 0; }
   .diag-block .dbt{ font-size:11.5px; color:var(--text); margin-bottom:3px; }
   .diag-block .dbn{ font-family:var(--mono); font-size:10.5px; color:var(--muted); line-height:1.6; }
@@ -407,6 +410,7 @@
         <label class="sp-row">骨骼數上限<input class="num2" id="spMaxBones" placeholder="不限" inputmode="numeric"></label>
       </div>
       <label class="sp-row sp-toggle"><input type="checkbox" id="spReqTex"> 必須有貼圖且無缺失</label>
+      <label class="sp-row sp-toggle"><input type="checkbox" id="spReqUnique"> Model 節點命名唯一(無重複骨骼名)</label>
       <label class="sp-row sp-col">必要動畫剪輯(逗號分隔,以名稱包含比對)
         <input class="num2 wide" id="spClips" placeholder="例:idle, walk, attack"></label>
       <div class="sp-grid">
@@ -468,6 +472,7 @@ const DEFAULT_SPEC = {
   enabled:true,
   maxTris:null, minBones:null, maxBones:null, maxMaterials:null,
   requireTextures:true, requiredClips:[], upAxis:'any', nameRegex:'',
+  requireUniqueNames:true,      // Model 節點命名唯一(重複會導致 three.js 動畫綁定錯亂)
   trisWarnPct:30,          // 與基準相比三角面增減超過此 % 給警告
 };
 
@@ -708,9 +713,81 @@ function envFor(renderer){
   return tex;
 }
 
+/* 修復 FBX 重複 Model 節點命名(如兩個 "Bip001 Pelvis")。
+   FBXLoader 以「名稱」綁定動畫 track,同名節點會使 track 相撞→子骨鏈歪斜。
+   以同長度原地覆寫把第 2 個以後的同名節點改成唯一名(不動 offset,動畫以 ID 連接不受影響)。 */
+function patchDuplicateNames(arrayBuffer){
+  const bytes = new Uint8Array(arrayBuffer);
+  const dv = new DataView(arrayBuffer);
+  const MAGIC = 'Kaydara FBX Binary  ';
+  for (let i = 0; i < 20; i++) if (bytes[i] !== MAGIC.charCodeAt(i)) return { buffer:arrayBuffer, renames:[] }; // ASCII FBX 跳過
+  const version = dv.getUint32(23, true);
+  const big = version >= 7500;
+  function header(off){
+    let end, plen;
+    if (big){ end = Number(dv.getBigUint64(off,true)); plen = Number(dv.getBigUint64(off+16,true)); off += 24; }
+    else    { end = dv.getUint32(off,true);            plen = dv.getUint32(off+8,true);            off += 12; }
+    const nlen = bytes[off]; off += 1;
+    let name = ''; for (let i = 0; i < nlen; i++) name += String.fromCharCode(bytes[off+i]);
+    return { end, name, body: off + nlen };
+  }
+  const recs = [];
+  let off = 27;
+  try{
+    while (off < bytes.length){
+      const h = header(off);
+      if (h.end === 0) break;
+      if (h.name === 'Objects'){
+        let c = h.body;
+        while (c < h.end){
+          const ch = header(c);
+          if (ch.end === 0) break;
+          if (ch.name === 'Model'){
+            let p = ch.body;
+            if (String.fromCharCode(bytes[p]) === 'L'){
+              p += 9;
+              if (String.fromCharCode(bytes[p]) === 'S'){
+                const sOff = p + 5, slen = dv.getUint32(p+1, true);
+                let full = ''; for (let i = 0; i < slen; i++) full += String.fromCharCode(bytes[sOff+i]);
+                recs.push({ sOff, name: full.split('\x00')[0] });
+              }
+            }
+          }
+          c = ch.end;
+        }
+      }
+      off = h.end;
+    }
+  }catch(_){ return { buffer:arrayBuffer, renames:[] }; }   // 解析失敗就原樣放行,不影響載入
+
+  const count = {}; recs.forEach(r => count[r.name] = (count[r.name]||0)+1);
+  const used = new Set(recs.map(r => r.name));
+  const seen = {}, renames = [];
+  for (const r of recs){
+    seen[r.name] = (seen[r.name]||0)+1;
+    if (count[r.name] > 1 && seen[r.name] > 1){
+      let k = seen[r.name], nn = null;
+      do{
+        const suf = String(k++);
+        if (r.name.length <= suf.length){ nn = null; break; }
+        nn = r.name.slice(0, r.name.length - suf.length) + suf;
+      }while (used.has(nn));
+      if (!nn) continue;
+      used.add(nn);
+      for (let i = 0; i < nn.length; i++) bytes[r.sOff+i] = nn.charCodeAt(i);
+      renames.push({ from: r.name, to: nn });
+    }
+  }
+  return { buffer: arrayBuffer, renames };
+}
+
 /* 載入 FBX 並等待所有貼圖實際載完（parse 同步回傳,但貼圖是非同步） */
 function loadFBXReady(buf, missSet, diag, assetDir, timeoutMs=15000){
   return new Promise((resolve, reject)=>{
+    if (diag){
+      try{ const r = patchDuplicateNames(buf); diag.renames = r.renames; }   // 載入前修復重複命名
+      catch(_){ diag.renames = []; }
+    }
     const m = new THREE.LoadingManager();
     m.addHandler(/\.tga$/i, new TGALoader(m));
     m.addHandler(/\.dds$/i, new DDSLoader(m));            // 外部 DDS 壓縮貼圖
@@ -865,6 +942,7 @@ async function buildThumb(asset){
   asset.diag = diag;
   asset.materialCount = mats.length;
   asset.clips = (model.animations || []).map(c=>({ name:c.name || '', duration:+(c.duration||0).toFixed(3) }));
+  asset.renames = diag.renames || [];       // 自動修復的重複命名(交付缺陷紀錄)
 
   // 套用已記錄的覆寫,讓縮圖也反映手動貼圖(載入專案後)
   if (asset.overrides){
@@ -1111,6 +1189,8 @@ async function loadIntoPreview(a){
   recountTextures();
   a.materialCount = pvMaterials.length;
   a.clips = (model.animations || []).map(c=>({ name:c.name || '', duration:+(c.duration||0).toFixed(3) }));
+  a.renames = diag.renames || [];
+  if (a.renames.length) toast(`已自動修復 ${a.renames.length} 個重複骨骼命名(交付缺陷,建議回報廠商)`, 3500);
   reviewEvaluate(a);
   updateCard(a);
 
@@ -1196,6 +1276,12 @@ function renderReviewSection(a){
   if (!G.reviewMode){ sec.style.display = 'none'; return; }
   sec.style.display = '';
   let html = '';
+  // 重複命名自動修復(交付缺陷)
+  if (a.renames && a.renames.length){
+    html += `<div class="rv-repair">🛠 已自動修復 ${a.renames.length} 個重複 Model 命名(否則動畫會歪):<ul>`
+      + a.renames.map(r=>`<li>${esc(r.from)} → ${esc(r.to)}</li>`).join('')
+      + `</ul><span class="rv-repair-note">這是交付缺陷,正解應請廠商在 DCC 端改名重匯。</span></div>`;
+  }
   // 達標判定
   if (getSpec().enabled){
     if (a.eval){
@@ -1609,6 +1695,10 @@ function evaluateSpec(a){
   if (sp.maxMaterials != null && (a.materialCount|0) > sp.maxMaterials) fails.push(`材質 ${a.materialCount} 超過上限 ${sp.maxMaterials}`);
   if (sp.requireTextures && (a.missing||[]).length) fails.push(`貼圖缺失 ${a.missing.length} 個`);
   if (sp.requireTextures && !(a.texCount>0) && !(a.missing||[]).length) fails.push('沒有任何貼圖');
+  if (sp.requireUniqueNames && a.renames && a.renames.length){
+    const names = a.renames.map(r=>r.from).join('、');
+    fails.push(`重複骨骼命名 ${a.renames.length} 處(${names})→ 會使 three.js 動畫綁定錯亂`);
+  }
   if (sp.upAxis && sp.upAxis !== 'any'){
     const ax = effectiveUpAxis(a);
     if (ax !== sp.upAxis) fails.push(`up 軸為 ${ax},要求 ${sp.upAxis}`);
@@ -1753,18 +1843,19 @@ baseInput.addEventListener('change', async ()=>{
 function exportReport(){
   const analyzed = G.assets.filter(a=>a.stats);
   if (!analyzed.length){ toast('尚無已分析的模型'); return; }
-  const rows = [['路徑','檔名','達標','未達原因','三角面','骨骼','材質','貼圖','缺圖','動畫數','版本狀態','差異']];
+  const rows = [['路徑','檔名','達標','未達原因','三角面','骨骼','材質','貼圖','缺圖','動畫數','重複命名','版本狀態','差異']];
   analyzed.forEach(a=>{
     const ev = a.eval, df = a.diff, s = a.stats;
     const diffTxt = df && df.changes && df.changes.length
       ? df.changes.map(c=> c.text ? `${c.label}:${c.text}` : `${c.label} ${c.from}→${c.to}`).join(' / ')
       : '';
+    const dup = (a.renames && a.renames.length) ? a.renames.map(r=>r.from).join(' / ') : '';
     rows.push([
       a.dir || '', a.name,
       ev ? (ev.pass ? '達標' : '未達標') : '未檢查',
       ev && ev.fails ? ev.fails.join(' ; ') : '',
       s.tris, s.bones, a.materialCount|0, a.texCount|0, (a.missing||[]).length,
-      (a.clips||[]).length,
+      (a.clips||[]).length, dup,
       df ? ({ same:'無變更', changed:'有變更', new:'新檔' }[df.status] || '') : '(無基準)',
       diffTxt,
     ]);
@@ -1773,7 +1864,7 @@ function exportReport(){
   if (G.baseline && G.baseline.assets){
     const cur = new Set(G.assets.map(a=>a.path));
     Object.keys(G.baseline.assets).filter(p=>!cur.has(p)).forEach(p=>{
-      rows.push([dirname(p), basename(p), '缺少', '上一版存在但本版缺少', '', '', '', '', '', '', '移除', '']);
+      rows.push([dirname(p), basename(p), '缺少', '上一版存在但本版缺少', '', '', '', '', '', '', '', '移除', '']);
     });
   }
   const csv = '\ufeff' + rows.map(r=>r.map(csvCell).join(',')).join('\r\n');
@@ -1808,6 +1899,7 @@ function openSpecModal(){
   $('spMaxBones').value = sp.maxBones ?? '';
   $('spMaxMats').value = sp.maxMaterials ?? '';
   $('spReqTex').checked = sp.requireTextures;
+  $('spReqUnique').checked = sp.requireUniqueNames;
   $('spClips').value = (sp.requiredClips || []).join(', ');
   $('spUpAxis').value = sp.upAxis || 'any';
   $('spName').value = sp.nameRegex || '';
@@ -1822,6 +1914,7 @@ function saveSpecFromModal(){
     maxTris: num('spMaxTris'), minBones: num('spMinBones'), maxBones: num('spMaxBones'),
     maxMaterials: num('spMaxMats'),
     requireTextures: $('spReqTex').checked,
+    requireUniqueNames: $('spReqUnique').checked,
     requiredClips: $('spClips').value.split(',').map(s=>s.trim()).filter(Boolean),
     upAxis: $('spUpAxis').value,
     nameRegex: $('spName').value.trim(),
