@@ -79,6 +79,12 @@
   }
   .card:hover{ border-color:#3c4150; }
   .card.sel{ border-color:var(--accent); }
+  .ctitle{
+    padding:7px 10px; font-size:12px; font-weight:600; color:var(--text);
+    background:var(--panel-2); border-bottom:1px solid var(--line);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-align:center;
+  }
+  .card.sel .ctitle{ color:var(--accent); }
   .thumb{
     position:relative; aspect-ratio:1/1; background:
       repeating-conic-gradient(#16171c 0% 25%, #1b1d23 0% 50%) 0 0 / 22px 22px;
@@ -169,15 +175,13 @@
     border-left:1px solid var(--line); display:flex; flex-direction:column;
     transition:width .16s ease, flex-basis .16s ease; position:relative;
   }
-  #preview.open{ flex:0 0 520px; width:520px; min-width:340px; }
+  #preview.open{ flex:0 0 780px; width:780px; min-width:520px; }
   #preview.dragging{ transition:none; }               /* 拖曳時關掉過場,避免延遲感 */
   #preview.max{
     position:fixed; top:48px; left:0; right:0; bottom:0; width:auto !important;
     flex:none !important; z-index:40; border-left:none; transition:none;
   }
-  #preview.max #pvVpWrap{ flex:1 1 auto !important; height:auto !important; }
-  #preview.max #pvBody{ display:none; }
-  #preview.max .grip-x, #preview.max .grip-y{ display:none; }
+  #preview.max .grip-x{ display:none; }
 
   /* 寬度分隔條(預覽左緣) */
   .grip-x{
@@ -188,28 +192,126 @@
   }
   .grip-x:hover::after, .grip-x.drag::after{ background:var(--accent); }
 
-  /* 高度分隔條(viewport 下方) */
-  .grip-y{
-    flex:0 0 7px; height:7px; cursor:row-resize; position:relative; background:var(--panel);
-    border-bottom:1px solid var(--line);
-  }
-  .grip-y::after{
-    content:''; position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
-    width:34px; height:2px; background:var(--line); border-radius:2px;
-  }
-  .grip-y:hover::after, .grip-y.drag::after{ background:var(--accent); }
-
   #pvHead{
     flex:0 0 auto; display:flex; align-items:center; gap:10px;
     padding:10px 14px; border-bottom:1px solid var(--line);
   }
-  #pvName{ font-weight:600; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  #pvVpWrap{ flex:0 0 auto; height:340px; position:relative; background:#101116; }
+  #pvName{ font-weight:600; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
+
+  /* viewport(左) + Inspector(右) 水平分割 */
+  #pvMain{ flex:1 1 auto; display:flex; min-height:0; min-width:0; }
+  #pvLeft{ flex:1 1 auto; display:flex; flex-direction:column; min-width:0; min-height:0; }
+  #pvVpWrap{ flex:1 1 auto; position:relative; background:#101116; min-height:0; }
   #pvCanvas{ position:absolute; inset:0; width:100%; height:100%; display:block; }
   #pvOverlay{
     position:absolute; left:0; right:0; bottom:0; display:flex; align-items:center; gap:8px;
     padding:8px 10px; background:linear-gradient(transparent,rgba(8,9,12,.78));
   }
+
+  /* Debug Flow Bar(頂部顯示輔助開關) */
+  #pvFlow{
+    position:absolute; top:0; left:0; right:0; z-index:4;
+    display:flex; align-items:center; gap:6px; flex-wrap:wrap;
+    padding:7px 9px; background:linear-gradient(rgba(8,9,12,.82), transparent);
+  }
+  .fchip{
+    background:rgba(26,28,34,.85); border:1px solid var(--line); color:var(--muted);
+    border-radius:6px; padding:3px 9px; font-size:11px; cursor:pointer; font-family:var(--sans);
+  }
+  .fchip:hover{ border-color:var(--accent); color:var(--text); }
+  .fchip.on{ background:var(--accent-dim); border-color:var(--accent); color:var(--text); }
+  #pvFlow .flabel{ color:var(--muted); font-size:10.5px; margin-left:2px; }
+  #pvFlow .fsep{ width:1px; height:16px; background:var(--line); margin:0 3px; }
+  #pvBgSel, #pvBoxSel{
+    background:rgba(26,28,34,.9); border:1px solid var(--line); color:var(--text);
+    border-radius:6px; padding:3px 6px; font-size:11px; max-width:150px;
+  }
+  #pvBoxSel{ display:none; }
+  #pvGridPop{
+    display:none; position:absolute; top:40px; right:9px; z-index:5; width:210px;
+    background:var(--panel); border:1px solid var(--line); border-radius:9px; padding:11px;
+    box-shadow:0 8px 24px rgba(0,0,0,.45);
+  }
+  #pvGridPop.open{ display:block; }
+  .gp-row{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:8px; font-size:12px; color:var(--text); }
+  .gp-row label{ color:var(--muted); }
+  .gp-row input[type=number], .gp-row input[type=text]{
+    width:96px; background:var(--panel-2); border:1px solid var(--line); color:var(--text);
+    border-radius:5px; padding:4px 7px; font-family:var(--mono); font-size:12px;
+  }
+  .gp-row input[type=color]{ width:40px; height:26px; background:none; border:1px solid var(--line); border-radius:5px; cursor:pointer; padding:1px; }
+  .gp-row input:focus{ outline:none; border-color:var(--accent); }
+  .gp-info{ font-size:10.5px; color:var(--dim); font-family:var(--mono); line-height:1.5; margin-top:2px; }
+  #pvStats{
+    display:none; position:absolute; top:40px; left:10px; z-index:3;
+    background:rgba(8,9,12,.7); border:1px solid var(--line); border-radius:7px;
+    padding:7px 10px; font-family:var(--mono); font-size:10.5px; color:var(--muted); line-height:1.7;
+    pointer-events:none;
+  }
+  #pvStats b{ color:var(--accent); }
+  .gp-sep{ height:1px; background:var(--line); margin:9px 0; }
+  .gp-row input[type=range]{ width:96px; accent-color:var(--accent); }
+  #pvDimHud{
+    display:none; position:absolute; left:10px; bottom:46px; z-index:3;
+    background:rgba(8,9,12,.72); border:1px solid var(--line); border-radius:7px;
+    padding:5px 10px; font-family:var(--mono); font-size:10.5px; color:var(--muted);
+    pointer-events:none;
+  }
+  #pvDimHud b{ color:var(--accent); }
+
+  /* AABB 邊緣尺寸標註 */
+  #pvDimLabels{ position:absolute; inset:0; z-index:3; pointer-events:none; display:none; }
+  .dimlab{
+    position:absolute; transform:translate(-50%,-50%); white-space:nowrap;
+    background:rgba(8,9,12,.8); border:1px solid var(--accent); color:var(--accent);
+    border-radius:5px; padding:1px 6px; font-family:var(--mono); font-size:10.5px; display:none;
+  }
+
+  /* 攝影機 / 光照 浮層(共用) */
+  .vp-pop{
+    display:none; position:absolute; top:40px; right:9px; z-index:5; width:210px;
+    background:var(--panel); border:1px solid var(--line); border-radius:9px; padding:11px;
+    box-shadow:0 8px 24px rgba(0,0,0,.45);
+  }
+  .vp-pop.open{ display:block; }
+  .gp-label{ font-size:10.5px; color:var(--muted); margin-bottom:6px; }
+  .vp-views{ display:grid; grid-template-columns:repeat(3,1fr); gap:5px; }
+  .vp-views button{
+    background:var(--panel-2); border:1px solid var(--line); color:var(--text);
+    border-radius:5px; padding:5px 0; font-size:11.5px; cursor:pointer;
+  }
+  .vp-views button:hover{ border-color:var(--accent); }
+
+  /* 動畫列表 */
+  .al-row{
+    display:flex; align-items:center; gap:9px; padding:8px 9px; margin-bottom:5px;
+    background:var(--panel-2); border:1px solid var(--line); border-radius:7px; cursor:pointer;
+  }
+  .al-row:hover{ border-color:var(--accent); }
+  .al-row.on{ border-color:var(--accent); background:var(--accent-dim); }
+  .al-play{ color:var(--accent); font-size:11px; width:14px; text-align:center; }
+  .al-name{ flex:1 1 auto; font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .al-dur{ font-family:var(--mono); font-size:10.5px; color:var(--muted); white-space:nowrap; }
+  .al-trim{ color:var(--accent); margin-left:5px; }
+
+  /* 驗收結論 + 備註 */
+  .rv-concl{ border-radius:8px; padding:9px 11px; margin-bottom:10px; font-size:12px; line-height:1.65; border:1px solid var(--line); }
+  .rv-concl .concl-h{ font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); margin-bottom:4px; }
+  .rv-concl.concl-ok{ border-color:#2f4a36; background:rgba(47,74,54,.18); }
+  .rv-concl.concl-bad{ border-color:#4a2f2f; background:rgba(74,47,47,.18); }
+  .rv-note{ margin-top:12px; }
+  .rv-note label{ display:block; font-size:10.5px; color:var(--muted); margin-bottom:5px; text-transform:uppercase; letter-spacing:.06em; }
+  .rv-note textarea{
+    width:100%; box-sizing:border-box; resize:vertical; min-height:56px;
+    background:var(--panel-2); border:1px solid var(--line); color:var(--text);
+    border-radius:7px; padding:8px 9px; font-size:12px; font-family:var(--sans); line-height:1.5;
+  }
+  .rv-note textarea:focus{ outline:none; border-color:var(--accent); }
+  .dim-overall{ font-size:12px; color:var(--text); padding:5px 8px; margin-bottom:6px;
+    background:var(--panel-2); border:1px solid var(--line); border-radius:6px; }
+  .dim-overall b{ color:var(--accent); font-family:var(--mono); }
+  .dim-u{ color:var(--dim); }
+  #pvDims .kv .dim-name{ max-width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .ibtn{
     background:rgba(26,28,34,.85); border:1px solid var(--line); color:var(--text);
     border-radius:6px; padding:4px 9px; font-size:11px; cursor:pointer;
@@ -218,7 +320,7 @@
   .ibtn.on{ background:var(--accent-dim); border-color:var(--accent); }
   #pvTransport{
     flex:0 0 auto; display:flex; align-items:center; gap:9px;
-    padding:8px 12px; border-bottom:1px solid var(--line); background:var(--panel-2);
+    padding:8px 12px; border-top:1px solid var(--line); background:var(--panel-2);
   }
   #pvTransport .tc{ font-family:var(--mono); font-size:11px; color:var(--muted); white-space:nowrap; }
   #pvSeek{ flex:1 1 auto; min-width:0; accent-color:var(--accent); cursor:pointer; }
@@ -226,8 +328,34 @@
     background:var(--panel); border:1px solid var(--line); color:var(--text);
     border-radius:6px; padding:3px 6px; font-size:11px; max-width:130px;
   }
-  #pvBody{ flex:1 1 auto; overflow:auto; padding:14px; min-height:0; }
+
+  /* Inspector 寬度分隔條 */
+  .grip-i{ flex:0 0 6px; cursor:col-resize; position:relative; background:transparent; }
+  .grip-i::after{ content:''; position:absolute; left:2px; top:0; bottom:0; width:2px; background:var(--line); }
+  .grip-i:hover::after, .grip-i.drag::after{ background:var(--accent); }
+  #preview.inspCollapsed .grip-i{ display:none; }
+
+  /* Inspector 面板(可收合,Tab 切換) */
+  #pvInspector{
+    flex:0 0 300px; display:flex; flex-direction:column; min-height:0;
+    background:var(--panel); border-left:1px solid var(--line);
+  }
+  #preview.inspCollapsed #pvInspector{ display:none; }
+  #pvTabs{ flex:0 0 auto; display:flex; border-bottom:1px solid var(--line); }
+  .pvtab{
+    flex:1 1 auto; background:var(--panel-2); border:none; border-right:1px solid var(--line);
+    color:var(--muted); padding:9px 6px; font-size:11.5px; cursor:pointer; font-family:var(--sans);
+  }
+  .pvtab:last-child{ border-right:none; }
+  .pvtab:hover{ color:var(--text); }
+  .pvtab.on{ background:var(--panel); color:var(--accent); box-shadow:inset 0 -2px 0 var(--accent); }
+  .pvtab[hidden]{ display:none; }
+  .pvtab .tabdot{ color:var(--bad); margin-left:3px; }
+  #pvTabBody{ flex:1 1 auto; overflow:auto; padding:14px; min-height:0; }
+  .pvpane[hidden]{ display:none; }
+  #pvInspToggle.on{ background:var(--accent-dim); border-color:var(--accent); }
   .sec{ margin-bottom:16px; }
+  .sec:last-child{ margin-bottom:0; }
   .sec h4{
     margin:0 0 8px; font-size:10.5px; letter-spacing:.09em; text-transform:uppercase;
     color:var(--muted); font-weight:600; display:flex; align-items:center; gap:8px;
@@ -251,6 +379,7 @@
   }
   .sw2:hover{ border-color:var(--accent); }
   .sw2.has{ border-style:solid; }
+  .sw2.drop{ border-color:var(--accent); border-style:solid; background:var(--accent-dim); box-shadow:0 0 0 2px var(--accent-dim); }
   .sw2 img{ width:100%; height:100%; object-fit:cover; display:block; }
   .sw2 .plus{ color:var(--dim); font-size:17px; line-height:1; }
   .sw2 .clr{
@@ -261,6 +390,23 @@
   .sw2 .clr:hover{ background:var(--bad); }
   .slot .sl{ font-size:9.5px; color:var(--muted); }
   .miss-note{ color:var(--bad); font-size:11px; font-family:var(--mono); line-height:1.6; margin-top:4px; }
+
+  /* 資料夾貼圖清單(可拖拉) */
+  #pvTexPalette{ display:flex; flex-wrap:wrap; gap:7px; }
+  .texpal-item{
+    width:64px; cursor:grab; display:flex; flex-direction:column; align-items:center; gap:3px;
+    border:1px solid var(--line); border-radius:7px; padding:5px 4px; background:var(--panel-2);
+  }
+  .texpal-item:hover{ border-color:var(--accent); }
+  .texpal-item.dragging{ opacity:.4; }
+  .texpal-item .tp-thumb{
+    width:54px; height:54px; border-radius:5px; overflow:hidden; background:
+      repeating-conic-gradient(#16171c 0% 25%, #1b1d23 0% 50%) 0 0 / 12px 12px;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .texpal-item .tp-thumb img{ width:100%; height:100%; object-fit:cover; pointer-events:none; }
+  .texpal-item .tp-ext{ font-family:var(--mono); font-size:11px; color:var(--muted); }
+  .texpal-item .tp-name{ font-size:9px; color:var(--muted); font-family:var(--mono); width:100%; text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
   /* 貼圖診斷 */
   .diag-line{ display:flex; flex-wrap:wrap; gap:5px; margin-bottom:8px; }
@@ -350,45 +496,133 @@
     <div id="pvHead">
       <span id="pvName">—</span>
       <div class="spacer"></div>
+      <button class="ibtn on" id="pvInspToggle" title="收合 / 展開 Inspector">Inspector</button>
       <button class="ibtn" id="pvMax" title="最大化檢視(Esc 退出)">放大</button>
       <button class="ibtn" id="pvClose" title="關閉預覽">✕</button>
     </div>
-    <div id="pvVpWrap">
-      <canvas id="pvCanvas"></canvas>
-      <div id="pvOverlay">
-        <div class="spacer"></div>
-        <button class="ibtn" id="pvUp" title="切換 Up 軸(Z↑ ↔ Y↑)">Y↑</button>
-        <button class="ibtn" id="pvWire" title="線框">線框</button>
-        <button class="ibtn" id="pvFrame" title="重新取景">取景</button>
+    <div id="pvMain">
+      <div id="pvLeft">
+        <div id="pvVpWrap">
+          <canvas id="pvCanvas"></canvas>
+          <div id="pvFlow">
+            <button class="fchip on" id="fcGrid" title="地面網格">網格</button>
+            <button class="fchip" id="fcAxes" title="世界座標軸">座標軸</button>
+            <button class="fchip" id="fcSkel" title="骨架">骨架</button>
+            <button class="fchip" id="fcBox" title="邊界框">邊界框</button>
+            <select id="pvBoxSel" title="邊界框目標(整體 / 指定 Mesh)"><option value="all">整體(全部 Mesh)</option></select>
+            <button class="fchip" id="fcWire" title="線框">線框</button>
+            <button class="fchip" id="fcStats" title="統計 HUD">統計</button>
+            <span class="fsep"></span>
+            <span class="flabel">背景</span>
+            <select id="pvBgSel" title="背景模式">
+              <option value="solid">Solid</option>
+              <option value="gradient">漸層</option>
+              <option value="skybox">Skybox</option>
+            </select>
+            <button class="fchip" id="pvCamBtn" title="攝影機設定">📷 攝影機</button>
+            <button class="fchip" id="pvLightBtn" title="光照設定">💡 光照</button>
+            <button class="fchip" id="pvGridBtn" title="網格設定">⚙ 網格</button>
+          </div>
+          <div id="pvGridPop">
+            <div class="gp-row"><label>每格大小</label><input type="number" id="gridCell" value="1" min="0.01" step="0.1"></div>
+            <div class="gp-row"><label>格數</label><input type="number" id="gridCount" value="20" min="1" max="400" step="1"></div>
+            <div class="gp-row"><label>單位</label><input type="text" id="gridUnit" value="m" maxlength="4" placeholder="m / cm"></div>
+            <div class="gp-sep"></div>
+            <div class="gp-row"><label>網格線色</label><input type="color" id="gridColorInp" value="#5a6273"></div>
+            <div class="gp-row"><label>中線色</label><input type="color" id="gridCenterInp" value="#8a93a5"></div>
+            <div class="gp-row"><label>不透明度</label><input type="range" id="gridOpac" min="0.1" max="1" step="0.05" value="0.9"></div>
+            <div class="gp-sep"></div>
+            <div class="gp-row" id="pvSolidRow"><label>背景色</label><input type="color" id="pvSolidColor" value="#101116"></div>
+            <div class="gp-info" id="gridInfo">每格 1m · 20 格 · 全幅 20m</div>
+          </div>
+          <div id="pvStats"></div>
+          <div id="pvDimHud"></div>
+          <div id="pvDimLabels">
+            <span class="dimlab" id="dlW"></span>
+            <span class="dimlab" id="dlH"></span>
+            <span class="dimlab" id="dlD"></span>
+          </div>
+          <div id="pvCamPop" class="vp-pop">
+            <div class="gp-row"><label>視角 FOV</label><input type="range" id="camFov" min="15" max="80" step="1" value="38"></div>
+            <div class="gp-row"><label>正交投影</label><input type="checkbox" id="camOrtho"></div>
+            <div class="gp-row"><label>自動旋轉</label><input type="checkbox" id="camAuto"></div>
+            <div class="gp-sep"></div>
+            <div class="gp-label">視角預設</div>
+            <div class="vp-views">
+              <button data-v="front">前</button><button data-v="back">後</button>
+              <button data-v="left">左</button><button data-v="right">右</button>
+              <button data-v="top">頂</button><button data-v="persp">透視</button>
+            </div>
+          </div>
+          <div id="pvLightPop" class="vp-pop">
+            <div class="gp-row"><label>曝光</label><input type="range" id="ltExp" min="0.3" max="2.5" step="0.05" value="1.05"></div>
+            <div class="gp-row"><label>主光</label><input type="range" id="ltKey" min="0" max="5" step="0.1" value="1.9"></div>
+            <div class="gp-row"><label>環境光</label><input type="range" id="ltHemi" min="0" max="4" step="0.1" value="1.2"></div>
+            <div class="gp-row"><label>補光</label><input type="range" id="ltFill" min="0" max="3" step="0.1" value="0.5"></div>
+          </div>
+          <div id="pvOverlay">
+            <div class="spacer"></div>
+            <button class="ibtn" id="pvUp" title="切換 Up 軸(Z↑ ↔ Y↑)">Y↑</button>
+            <button class="ibtn" id="pvFrame" title="重新取景">取景</button>
+          </div>
+        </div>
+        <div id="pvTransport" style="display:none">
+          <button class="ibtn" id="pvPlay" title="播放/暫停">❚❚</button>
+          <span id="pvTime" class="tc">0.00 / 0.00s</span>
+          <input type="range" id="pvSeek" min="0" max="1" step="0.001" value="0" title="拖動時間軸">
+          <select id="pvClip"></select>
+        </div>
       </div>
-    </div>
-    <div class="grip-y" id="pvGripY" title="拖曳調整高度(雙擊還原)"></div>
-    <div id="pvTransport" style="display:none">
-      <button class="ibtn" id="pvPlay" title="播放/暫停">❚❚</button>
-      <span id="pvTime" class="tc">0.00 / 0.00s</span>
-      <input type="range" id="pvSeek" min="0" max="1" step="0.001" value="0" title="拖動時間軸">
-      <select id="pvClip"></select>
-    </div>
-    <div id="pvBody">
-      <div class="sec">
-        <h4>資訊</h4>
-        <div id="pvInfo"></div>
-      </div>
-      <div class="sec" id="pvReviewSec" style="display:none">
-        <h4>驗收 / 版本差異</h4>
-        <div id="pvReview"></div>
-      </div>
-      <div class="sec" id="pvDiagSec">
-        <h4>貼圖診斷 <span class="h4hint">FBX 要求的貼圖配對狀況</span></h4>
-        <div id="pvDiag"></div>
-      </div>
-      <div class="sec" id="pvTexSec">
-        <h4>貼圖 / 材質 <span class="h4hint">點空槽上載貼圖</span></h4>
-        <div id="pvMats"></div>
-      </div>
-      <div class="sec">
-        <div class="pvbtns">
-          <button class="tbtn" id="pvReload">重新載入</button>
+      <div class="grip-i" id="pvInspGrip" title="拖曳調整 Inspector 寬度"></div>
+      <div id="pvInspector">
+        <div id="pvTabs">
+          <button class="pvtab on" data-tab="info">資訊</button>
+          <button class="pvtab" data-tab="mat">材質 / 貼圖</button>
+          <button class="pvtab" data-tab="anim">動畫</button>
+          <button class="pvtab" data-tab="review" id="pvTabReview">驗收</button>
+        </div>
+        <div id="pvTabBody">
+          <div class="pvpane" data-pane="info">
+            <div class="sec">
+              <h4>模型資訊</h4>
+              <div id="pvInfo"></div>
+            </div>
+            <div class="sec">
+              <h4>尺寸(每 Mesh 長寬高) <span class="h4hint">W × H × D</span></h4>
+              <div id="pvDims"></div>
+            </div>
+            <div class="sec">
+              <div class="pvbtns">
+                <button class="tbtn" id="pvReload">重新載入</button>
+              </div>
+            </div>
+          </div>
+          <div class="pvpane" data-pane="mat" hidden>
+            <div class="sec" id="pvPaletteSec">
+              <h4>資料夾貼圖 <span class="h4hint">拖到下方槽位指派</span></h4>
+              <div id="pvTexPalette"></div>
+            </div>
+            <div class="sec" id="pvTexSec">
+              <h4>貼圖 / 材質 <span class="h4hint">拖入或點擊上載</span></h4>
+              <div id="pvMats"></div>
+            </div>
+            <div class="sec" id="pvDiagSec">
+              <h4>貼圖診斷 <span class="h4hint">配對狀況</span></h4>
+              <div id="pvDiag"></div>
+            </div>
+          </div>
+          <div class="pvpane" data-pane="anim" hidden>
+            <div class="sec">
+              <h4>動畫列表 <span class="h4hint">點選切換播放</span></h4>
+              <div id="pvAnimList"></div>
+            </div>
+          </div>
+          <div class="pvpane" data-pane="review" hidden>
+            <div class="sec" id="pvReviewSec">
+              <h4>驗收 / 版本差異</h4>
+              <div id="pvReview"></div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -462,6 +696,7 @@ const G = {
   rootName:'', entries:[],              // 所有檔案 entry (正規化)
   assets:[],                            // FBX entries（含 stats / thumb 狀態）
   fileIndex:{ byName:new Map(), byTail:new Map(), blobName:new Map() },
+  imageList:[],
   blobURLs:[],                          // 待 revoke
   envTex:null,
   selected:-1, curAsset:null,
@@ -572,6 +807,7 @@ async function ingest(entries, rootName){
 }
 
 async function resolveImages(images){
+  G.imageList = [];
   await mapLimit(images, 12, async e=>{
     let file; try{ file = await entryFile(e); }catch(_){ return; }
     const url = URL.createObjectURL(file);
@@ -586,7 +822,13 @@ async function resolveImages(images){
     const tail = pathLc.split('/').slice(-2).join('/');
     if (!G.fileIndex.byTail.has(tail)) G.fileIndex.byTail.set(tail, url);
     e._blob = url;
+    if (SUPPORTED_TEX.test(e.name)) G.imageList.push({ name:e.name, path:pathLc, dir, url });   // 供資料夾貼圖清單
   });
+}
+function folderTextures(a){
+  const list = G.imageList || [];
+  const d = (a.dir || '').replace(/\\/g,'/').toLowerCase();
+  return list.filter(im => d === '' ? im.dir === '' : (im.dir === d || im.dir.startsWith(d + '/')));
 }
 function commonPrefixLen(aDir, bDir){
   const A = aDir.split('/'), B = bDir.split('/');
@@ -990,6 +1232,7 @@ function renderGrid(){
       + (G.reviewMode && a.diff && (a.diff.status==='changed'||a.diff.status==='new') ? ' r-chg' : '');
     card.dataset.idx = a.idx;
     card.innerHTML = `
+      <div class="ctitle" title="${esc(a.dir || '(根目錄)')}">${esc(folderName(a))}</div>
       <div class="thumb">${thumbInner(a)}</div>
       <div class="meta">
         <div class="cname" title="${esc(a.name)}">${esc(a.name)}</div>
@@ -1001,6 +1244,11 @@ function renderGrid(){
     a._card = card;
     io.observe(card);
   }
+}
+function folderName(a){
+  const d = (a.dir || '').replace(/\\/g,'/');
+  if (!d) return G.rootName || '(根目錄)';
+  return d.split('/').pop();
 }
 function thumbInner(a){
   if (a.state === 'done' && a.thumb) return `<img src="${a.thumb}" alt="">`;
@@ -1073,9 +1321,258 @@ function filteredAssets(){
 
 /* ───────── 預覽面板 ───────── */
 let previewRenderer, pvScene, pvCam, pvControls, pvMixer, pvClock;
-let pvModel = null, pvActions = [], pvCurAction = null, pvPlaying = true;
-let pvRAF = 0, pvUpMode = 'auto', pvWire = false, pvFrameInfo = null;
+let pvModel = null, pvActions = [], pvCurAction = null, pvPlaying = true, pvClipIdx = 0;
+let pvKey=null, pvFill=null, pvHemi=null, pvWorldBox=null;
+const pvCamState = { fov:38, ortho:false, autoRotate:false };
+const pvLight = { exposure:1.05, key:1.9, hemi:1.2, fill:0.5 };
+let pvRAF = 0, pvUpMode = 'auto', pvFrameInfo = null;
 let pvSeeking = false, pvMaterials = [], pendingSlot = null, pvSeekEl, pvTimeEl;
+
+/* 檢視輔助(Debug Flow Bar)狀態 */
+const pvDisp = {
+  grid:true, axes:false, skeleton:false, bbox:false, wire:false, stats:false,
+  bg:'solid', solidColor:'#101116',
+  gridCount:20, gridCell:1, gridUnit:'m', gridAuto:true,
+  gridColor:'#5a6273', gridCenter:'#8a93a5', gridOpacity:0.9,
+};
+let pvGrid=null, pvAxes=null, pvSkel=null, pvBox=null, pvGradTex=null, pvSkyTex=null;
+let pvFrames=0, pvFpsT=0, pvFps=0, pvDims=null;
+
+function buildGrid(){
+  if (!pvScene) return;
+  if (pvGrid){ pvScene.remove(pvGrid); pvGrid.geometry.dispose(); pvGrid.material.dispose(); pvGrid=null; }
+  const count = Math.max(1, Math.min(pvDisp.gridCount|0, 400));
+  const size  = Math.max(1e-4, pvDisp.gridCell * count);
+  const g = new THREE.GridHelper(size, count, new THREE.Color(pvDisp.gridCenter), new THREE.Color(pvDisp.gridColor));
+  g.material.opacity = pvDisp.gridOpacity; g.material.transparent = pvDisp.gridOpacity < 1; g.name='__grid';
+  g.visible = pvDisp.grid;
+  pvScene.add(g); pvGrid = g;
+}
+function getGradientTex(){
+  if (pvGradTex) return pvGradTex;
+  const c=document.createElement('canvas'); c.width=16; c.height=256;
+  const ctx=c.getContext('2d'); const g=ctx.createLinearGradient(0,0,0,256);
+  g.addColorStop(0,'#20232b'); g.addColorStop(0.55,'#14161c'); g.addColorStop(1,'#0a0b0e');
+  ctx.fillStyle=g; ctx.fillRect(0,0,16,256);
+  pvGradTex=new THREE.CanvasTexture(c); pvGradTex.colorSpace=THREE.SRGBColorSpace; return pvGradTex;
+}
+function getSkyTex(){
+  if (pvSkyTex) return pvSkyTex;
+  const c=document.createElement('canvas'); c.width=512; c.height=256;
+  const ctx=c.getContext('2d'); const g=ctx.createLinearGradient(0,0,0,256);
+  g.addColorStop(0,'#40506b'); g.addColorStop(0.48,'#96a3b5'); g.addColorStop(0.52,'#6d7580'); g.addColorStop(1,'#2b2e35');
+  ctx.fillStyle=g; ctx.fillRect(0,0,512,256);
+  pvSkyTex=new THREE.CanvasTexture(c);
+  pvSkyTex.mapping=THREE.EquirectangularReflectionMapping; pvSkyTex.colorSpace=THREE.SRGBColorSpace;
+  return pvSkyTex;
+}
+function applyBackground(){
+  if (!pvScene) return;
+  if (pvDisp.bg==='skybox') pvScene.background = getSkyTex();
+  else if (pvDisp.bg==='gradient') pvScene.background = getGradientTex();
+  else pvScene.background = new THREE.Color(pvDisp.solidColor);
+}
+function applyWire(){
+  if (!pvModel) return;
+  pvModel.traverse(o=>{ if(o.isMesh){ const mats=Array.isArray(o.material)?o.material:[o.material]; mats.forEach(m=>{ if(m) m.wireframe=pvDisp.wire; }); }});
+}
+function removeModelHelpers(){
+  [pvAxes,pvSkel,pvBox].forEach(h=>{ if(h){ pvScene.remove(h); if(h.geometry)h.geometry.dispose(); if(h.material)h.material.dispose(); } });
+  pvAxes=pvSkel=pvBox=null;
+}
+function buildModelHelpers(){
+  removeModelHelpers();
+  if (!pvModel || !pvScene) return;
+  const box=new THREE.Box3().setFromObject(pvModel), sz=box.getSize(new THREE.Vector3());
+  const dim=Math.max(sz.x,sz.y,sz.z)||1;
+  autofitGrid(sz);
+  pvAxes=new THREE.AxesHelper(dim*0.6); pvAxes.visible=pvDisp.axes; pvScene.add(pvAxes);
+  pvSkel=new THREE.SkeletonHelper(pvModel); pvSkel.material.linewidth=2; pvSkel.visible=pvDisp.skeleton; pvScene.add(pvSkel);
+  applyWire();
+  computeMeshDims();        // 量各 Mesh 與整體尺寸(靜止姿勢),並建立 AABB 邊界框
+}
+/* AABB 邊界框目標:'all'(整體)或 mesh index。用 Box3Helper 從實際量到的 AABB 繪製,與尺寸一致。 */
+let pvBoxTarget = 'all';
+function currentBox(){
+  if (!pvDims) return null;
+  if (pvBoxTarget === 'all') return pvDims.overallBox;
+  const m = pvDims.meshes[pvBoxTarget]; return m ? m.box : pvDims.overallBox;
+}
+function setBoxTarget(t){
+  pvBoxTarget = t;
+  if (pvBox){ pvScene.remove(pvBox); if(pvBox.geometry)pvBox.geometry.dispose(); if(pvBox.material)pvBox.material.dispose(); pvBox=null; }
+  const box = currentBox();
+  pvWorldBox = box || null;
+  if (box){
+    pvBox = new THREE.Box3Helper(box, new THREE.Color(0xF5A623));
+    pvBox.visible = pvDisp.bbox;
+    pvScene.add(pvBox);
+  }
+  const sel=$('pvBoxSel'); if(sel) sel.value=String(pvBoxTarget);
+  updateDimHud(); updateDimLabels();
+}
+function renderBoxTargets(){
+  const sel=$('pvBoxSel'); if(!sel || !pvDims) return;
+  const opts=[`<option value="all">整體(全部 Mesh)</option>`]
+    .concat(pvDims.meshes.map((m,i)=>`<option value="${i}">${esc(m.name)}</option>`));
+  sel.innerHTML=opts.join('');
+  if (pvBoxTarget!=='all' && +pvBoxTarget>=pvDims.meshes.length) pvBoxTarget='all';
+  sel.value=String(pvBoxTarget);
+}
+/* 依 Mesh 量長寬高(以真實蒙皮頂點取世界 AABB,與畫面/邊界框一致) */
+function computeMeshDims(){
+  if (!pvModel){ pvDims=null; pvWorldBox=null; return; }
+  const meshes=[]; pvModel.traverse(o=>{ if (o.isMesh) meshes.push(o); });
+  const overall=new THREE.Box3(), v=new THREE.Vector3(), list=[];
+  for (const mesh of meshes){
+    mesh.updateWorldMatrix(true,false);
+    const pos=mesh.geometry && mesh.geometry.attributes.position; if (!pos) continue;
+    const n=pos.count, step=Math.max(1,Math.floor(n/3000));
+    const box=new THREE.Box3();
+    const skinned = mesh.isSkinnedMesh && typeof mesh.getVertexPosition==='function';
+    for (let i=0;i<n;i+=step){
+      if (skinned) mesh.getVertexPosition(i,v); else v.fromBufferAttribute(pos,i);
+      mesh.localToWorld(v); box.expandByPoint(v);
+    }
+    if (box.isEmpty()) continue;
+    const s=box.getSize(new THREE.Vector3());
+    list.push({ name:mesh.name||'(mesh)', size:[s.x,s.y,s.z], box:box.clone() });
+    overall.union(box);
+  }
+  const os=overall.isEmpty()?new THREE.Vector3():overall.getSize(new THREE.Vector3());
+  pvDims={ meshes:list, overall:[os.x,os.y,os.z], overallBox: overall.isEmpty()?null:overall.clone() };
+  renderDims();
+  renderBoxTargets();       // 更新 AABB 目標下拉
+  setBoxTarget(pvBoxTarget); // 依目前選擇重建 Box3Helper
+}
+function dimStr(a){ return a.map(x=>(+(+x).toFixed(2))).join(' × '); }
+function renderDims(){
+  const wrap=$('pvDims'); if(!wrap) return;
+  if(!pvDims){ wrap.innerHTML=`<div class="rv-muted">尚未載入</div>`; return; }
+  const u=pvDisp.gridUnit ? ` <span class="dim-u">${esc(pvDisp.gridUnit)}</span>` : '';
+  let html=`<div class="dim-overall">整體 (W×H×D)　<b>${dimStr(pvDims.overall)}</b>${u}</div>`;
+  html+=pvDims.meshes.map(m=>
+    `<div class="kv"><span class="k dim-name" title="${esc(m.name)}">${esc(m.name)}</span><span class="v">${dimStr(m.size)}</span></div>`
+  ).join('');
+  if(!pvDims.meshes.length) html+=`<div class="rv-muted">此模型無網格</div>`;
+  wrap.innerHTML=html;
+}
+function updateDimHud(){
+  const hud=$('pvDimHud'); if(!hud) return;
+  if(pvDisp.bbox && pvWorldBox && !pvWorldBox.isEmpty()){
+    const s=pvWorldBox.getSize(new THREE.Vector3()), u=pvDisp.gridUnit||'';
+    const label = pvBoxTarget==='all' ? '整體邊界' : (pvDims && pvDims.meshes[pvBoxTarget] ? esc(pvDims.meshes[pvBoxTarget].name) : '邊界');
+    hud.innerHTML=`${label}　W <b>${(+s.x.toFixed(2))}</b> · H <b>${(+s.y.toFixed(2))}</b> · D <b>${(+s.z.toFixed(2))}</b> ${esc(u)}`;
+    hud.style.display='block';
+  } else hud.style.display='none';
+}
+/* 未手動調整時,地面網格自動貼合模型尺度(否則 120 單位的角色配 20 單位網格會太小) */
+function autofitGrid(sz){
+  if (!pvDisp.gridAuto) return;
+  const dim = Math.max(sz.x, sz.z, sz.y*0.5) || 1;
+  const target = dim * 1.8;
+  const raw = target / 20;
+  const pow = Math.pow(10, Math.floor(Math.log10(Math.max(raw,1e-6))));
+  const m = raw / pow;
+  const cell = (m<=1?1:m<=2?2:m<=5?5:10) * pow;
+  pvDisp.gridCell = +cell.toFixed(4);
+  pvDisp.gridCount = Math.max(10, Math.min(Math.round(target/cell), 200));
+  buildGrid();
+  const ci=$('gridCell'), co=$('gridCount'); if(ci) ci.value=pvDisp.gridCell; if(co) co.value=pvDisp.gridCount;
+  updateGridInfo();
+}
+function applyDisplay(){
+  if (pvGrid) pvGrid.visible=pvDisp.grid;
+  if (pvAxes) pvAxes.visible=pvDisp.axes;
+  if (pvSkel) pvSkel.visible=pvDisp.skeleton;
+  if (pvBox)  pvBox.visible=pvDisp.bbox;
+  const bsel=$('pvBoxSel'); if(bsel) bsel.style.display = pvDisp.bbox ? 'inline-block' : 'none';
+  applyWire();
+  const hud=$('pvStats'); if (hud) hud.style.display = pvDisp.stats ? 'block' : 'none';
+  updateDimHud();
+  updateDimLabels();
+  syncFlowChips();
+}
+function syncFlowChips(){
+  const map={ grid:'fcGrid', axes:'fcAxes', skeleton:'fcSkel', bbox:'fcBox', wire:'fcWire', stats:'fcStats' };
+  for (const k in map){ const el=$(map[k]); if (el) el.classList.toggle('on', !!pvDisp[k]); }
+  const bgSel=$('pvBgSel'); if (bgSel) bgSel.value=pvDisp.bg;
+}
+function updateStats(){
+  pvFrames++;
+  const now=performance.now();
+  if (now-pvFpsT>=500){ pvFps=Math.round(pvFrames*1000/(now-pvFpsT)); pvFrames=0; pvFpsT=now; }
+  const info=previewRenderer.info.render;
+  const s=G.curAsset && G.curAsset.stats;
+  $('pvStats').innerHTML =
+    `<b>${pvFps}</b> FPS<br>TRIS <b>${s?fmtNum(s.tris):'—'}</b><br>VERTS <b>${s?fmtNum(s.verts):'—'}</b><br>DRAW <b>${info.calls}</b>`;
+}
+
+/* ── 相機控制 ── */
+function applyCamState(){
+  if (pvCam.isPerspectiveCamera){ pvCam.fov = pvCamState.fov; pvCam.updateProjectionMatrix(); }
+  if (pvControls) pvControls.autoRotate = pvCamState.autoRotate;
+  const f=$('camFov'), o=$('camOrtho'), r=$('camAuto');
+  if (f) f.value = pvCamState.fov; if (o) o.checked = pvCamState.ortho; if (r) r.checked = pvCamState.autoRotate;
+}
+function setProjection(ortho){
+  if (!pvCam) return;
+  pvCamState.ortho = ortho;
+  const aspect = ($('pvVpWrap').clientWidth||1)/($('pvVpWrap').clientHeight||1);
+  const target = pvControls ? pvControls.target.clone() : new THREE.Vector3();
+  const pos = pvCam.position.clone();
+  const dist = pos.distanceTo(target) || 3;
+  if (ortho){
+    const h = 2*dist*Math.tan(THREE.MathUtils.degToRad(pvCamState.fov)/2), w = h*aspect;
+    pvCam = new THREE.OrthographicCamera(-w/2, w/2, h/2, -h/2, 0.001, 1e6);
+  } else {
+    pvCam = new THREE.PerspectiveCamera(pvCamState.fov, aspect, 0.01, 1e6);
+  }
+  pvCam.position.copy(pos);
+  if (pvControls) pvControls.dispose();
+  pvControls = makeControls(pvCam);
+  pvControls.target.copy(target); pvControls.update();
+}
+function setView(dir){
+  if (!pvControls) return;
+  const target = pvControls.target.clone();
+  const dist = pvCam.position.distanceTo(target) || 3;
+  const D={ front:[0,0,1], back:[0,0,-1], left:[-1,0,0], right:[1,0,0], top:[0,1,0.0001], persp:[0.6,0.45,1] };
+  const d=new THREE.Vector3(...(D[dir]||D.persp)).normalize();
+  pvCam.position.copy(target.clone().add(d.multiplyScalar(dist)));
+  pvControls.update();
+}
+
+/* ── 光照控制 ── */
+function applyLight(){
+  if (previewRenderer) previewRenderer.toneMappingExposure = pvLight.exposure;
+  if (pvKey) pvKey.intensity = pvLight.key;
+  if (pvHemi) pvHemi.intensity = pvLight.hemi;
+  if (pvFill) pvFill.intensity = pvLight.fill;
+}
+
+/* ── AABB 邊緣尺寸標註(投影到螢幕) ── */
+function updateDimLabels(){
+  const cont=$('pvDimLabels'); if(!cont) return;
+  if(!(pvDisp.bbox && pvWorldBox && !pvWorldBox.isEmpty())){ cont.style.display='none'; return; }
+  cont.style.display='block';
+  const mn=pvWorldBox.min, mx=pvWorldBox.max, u=pvDisp.gridUnit||'';
+  const mid=(a,b)=>(a+b)/2;
+  const specs=[
+    { id:'dlW', p:[mid(mn.x,mx.x), mn.y, mx.z], t:`W ${(+(mx.x-mn.x).toFixed(2))}${u}` },
+    { id:'dlH', p:[mx.x, mid(mn.y,mx.y), mx.z], t:`H ${(+(mx.y-mn.y).toFixed(2))}${u}` },
+    { id:'dlD', p:[mx.x, mn.y, mid(mn.z,mx.z)], t:`D ${(+(mx.z-mn.z).toFixed(2))}${u}` },
+  ];
+  const w=$('pvVpWrap').clientWidth, h=$('pvVpWrap').clientHeight;
+  const v=new THREE.Vector3();
+  for(const s of specs){
+    const el=$(s.id); if(!el) continue;
+    v.set(s.p[0],s.p[1],s.p[2]).project(pvCam);
+    if(v.z>1 || v.z<-1){ el.style.display='none'; continue; }   // 超出視錐(含相機後方)
+    el.style.display='block';
+    el.style.left=((v.x*0.5+0.5)*w)+'px'; el.style.top=((-v.y*0.5+0.5)*h)+'px'; el.textContent=s.t;
+  }
+}
 
 function initPreview(){
   if (previewRenderer) return;
@@ -1089,27 +1586,34 @@ function initPreview(){
   previewRenderer.shadowMap.enabled = false;
 
   pvScene = new THREE.Scene();
-  pvScene.background = new THREE.Color(0x101116);
   pvScene.environment = envFor(previewRenderer);
 
-  pvCam = new THREE.PerspectiveCamera(38, 1, 0.01, 1e6);
-  pvControls = new OrbitControls(pvCam, canvas);
-  pvControls.enableDamping = true; pvControls.dampingFactor = 0.08;
+  pvCam = new THREE.PerspectiveCamera(pvCamState.fov, 1, 0.01, 1e6);
+  pvControls = makeControls(pvCam);
 
-  pvScene.add(new THREE.HemisphereLight(0xffffff, 0x33373f, 1.2));
-  const key = new THREE.DirectionalLight(0xffffff, 1.9); key.position.set(3,5,4); pvScene.add(key);
-  const fill = new THREE.DirectionalLight(0xbcd0ff, 0.5); fill.position.set(-4,2,-3); pvScene.add(fill);
+  pvHemi = new THREE.HemisphereLight(0xffffff, 0x33373f, pvLight.hemi); pvScene.add(pvHemi);
+  pvKey = new THREE.DirectionalLight(0xffffff, pvLight.key); pvKey.position.set(3,5,4); pvScene.add(pvKey);
+  pvFill = new THREE.DirectionalLight(0xbcd0ff, pvLight.fill); pvFill.position.set(-4,2,-3); pvScene.add(pvFill);
+  applyLight();
 
-  // 接觸陰影地面（半透明）
-  const grid = new THREE.GridHelper(10, 20, 0x2a2d36, 0x20222a);
-  grid.material.opacity = 0.5; grid.material.transparent = true; grid.name = '__grid';
-  pvScene.add(grid);
+  buildGrid();          // 可調地面網格
+  applyBackground();    // 背景模式(solid / gradient / skybox)
+  syncFlowChips();
+}
+function makeControls(cam){
+  const c = new OrbitControls(cam, $('pvCanvas'));
+  c.enableDamping = true; c.dampingFactor = 0.08;
+  c.autoRotate = pvCamState.autoRotate; c.autoRotateSpeed = 1.6;
+  return c;
 }
 function pvResize(){
   const w = $('pvVpWrap').clientWidth, h = $('pvVpWrap').clientHeight;
   if (!w || !h) return;
   previewRenderer.setSize(w, h, false);
-  pvCam.aspect = w/h; pvCam.updateProjectionMatrix();
+  if (pvCam.isOrthographicCamera){
+    const aspect=w/h, halfH=(pvCam.top-pvCam.bottom)/2;
+    pvCam.left=-halfH*aspect; pvCam.right=halfH*aspect; pvCam.updateProjectionMatrix();
+  } else { pvCam.aspect = w/h; pvCam.updateProjectionMatrix(); }
 }
 function pvLoop(){
   pvRAF = requestAnimationFrame(pvLoop);
@@ -1123,7 +1627,10 @@ function pvLoop(){
     pvTimeEl.textContent = t.toFixed(2) + ' / ' + d.toFixed(2) + 's';
   }
   pvControls.update();
+  pvCam.updateMatrixWorld();
+  if (pvBox && pvBox.visible) updateDimLabels();   // 在相機更新後投影,標籤才不會延遲飄移
   previewRenderer.render(pvScene, pvCam);
+  if (pvDisp.stats) updateStats();
 }
 
 async function selectAsset(idx){
@@ -1150,6 +1657,7 @@ function closePreview(){
   document.querySelectorAll('.card.sel').forEach(c=>c.classList.remove('sel'));
 }
 function clearPreviewModel(){
+  removeModelHelpers();
   if (pvMixer){ pvMixer.stopAllAction(); pvMixer.uncacheRoot(pvModel); pvMixer = null; }
   if (pvModel){ pvScene.remove(pvModel); disposeObject(pvModel); pvModel = null; }
   pvActions = []; pvCurAction = null;
@@ -1160,7 +1668,6 @@ async function loadIntoPreview(a){
   $('pvInfo').innerHTML = `<div class="kv"><span class="k">狀態</span><span class="v">載入中…</span></div>`;
   $('pvMats').innerHTML = '';
   pvUpMode = (a.upAxis === 'Y' || a.upAxis === 'Z') ? a.upAxis : 'auto'; updateUpBtn();   // 還原方向模式
-  pvWire = false; $('pvWire').classList.remove('on');
 
   let buf;
   try { buf = await (await entryFile(a)).arrayBuffer(); }
@@ -1199,6 +1706,8 @@ async function loadIntoPreview(a){
   applyUpAxis();
   pvFrameInfo = frameToCamera(model, pvCam, 1.5);
   if (pvFrameInfo){ pvControls.target.copy(pvFrameInfo.center); pvControls.update(); }
+  buildModelHelpers();      // 骨架 / 邊界框 / 座標軸(依模型尺寸)
+  applyDisplay();           // 套用目前的顯示輔助開關
 
   // 動畫
   const clips = model.animations || [];
@@ -1209,6 +1718,7 @@ async function loadIntoPreview(a){
   renderReviewSection(a);
   renderDiag(diag);
   renderMaterialsUI(a.missing);
+  renderTexPalette(a);
 }
 function setupClips(model, clips){
   const playBtn = $('pvPlay'), sel = $('pvClip'), bar = $('pvTransport');
@@ -1231,6 +1741,25 @@ function setupClips(model, clips){
     bar.style.display = 'none';
     if (pvSeekEl){ pvSeekEl.value = 0; pvTimeEl.textContent = '0.00 / 0.00s'; }
   }
+  renderAnimList(clips);
+}
+function renderAnimList(clips){
+  const wrap=$('pvAnimList'); if(!wrap) return;
+  if(!clips || !clips.length){ wrap.innerHTML=`<div class="rv-muted">此模型沒有動畫。</div>`; return; }
+  wrap.innerHTML = clips.map((c,i)=>{
+    const trim=c.__trimStart?`<span class="al-trim">修剪 ${c.__trimStart.toFixed(2)}s</span>`:'';
+    return `<div class="al-row${i===pvClipIdx?' on':''}" data-i="${i}">
+      <span class="al-play">${i===pvClipIdx && pvPlaying?'▶':'❚❚'}</span>
+      <span class="al-name" title="${esc(c.name||('Clip '+i))}">${esc(c.name||('Clip '+i))}</span>
+      <span class="al-dur">${c.duration.toFixed(2)}s ${trim}</span>
+    </div>`;
+  }).join('');
+  wrap.querySelectorAll('.al-row').forEach(r=> r.addEventListener('click', ()=>{
+    const i=+r.dataset.i;
+    pvPlaying=true; $('pvPlay').textContent='❚❚';
+    $('pvClip').value=String(i);
+    playClipIndex(i);
+  }));
 }
 function playClipIndex(i){
   if (!pvMixer || !pvModel.animations[i]) return;
@@ -1238,13 +1767,14 @@ function playClipIndex(i){
   const clip = pvModel.animations[i];
   const a = pvMixer.clipAction(clip);
   a.reset(); a.setLoop(THREE.LoopRepeat, Infinity); a.fadeIn(0.2).play();
-  pvCurAction = a;
+  pvCurAction = a; pvClipIdx = i;
   if (pvSeekEl){
     pvSeekEl.max = clip.duration || 1;
     pvSeekEl.step = Math.max((clip.duration || 1) / 1000, 0.001);
     pvSeekEl.value = 0;
     pvTimeEl.textContent = '0.00 / ' + (clip.duration || 0).toFixed(2) + 's';
   }
+  renderAnimList(pvModel.animations);
 }
 function fillInfo(a, s, clips){
   const trimmed = clips.filter(c=>c.__trimStart);
@@ -1270,26 +1800,72 @@ function fillInfo(a, s, clips){
   $('pvInfo').innerHTML = rows.map(([k,v])=>kvRow(k,v)).join('');
 }
 function kvRow(k,v){ return `<div class="kv"><span class="k">${esc(k)}</span><span class="v">${esc(v)}</span></div>`; }
-function renderReviewSection(a){
-  const sec = $('pvReviewSec'), wrap = $('pvReview');
-  if (!sec || !wrap) return;
-  if (!G.reviewMode){ sec.style.display = 'none'; return; }
-  sec.style.display = '';
-  let html = '';
-  // 重複命名自動修復(交付缺陷)
-  if (a.renames && a.renames.length){
-    html += `<div class="rv-repair">🛠 已自動修復 ${a.renames.length} 個重複 Model 命名(否則動畫會歪):<ul>`
-      + a.renames.map(r=>`<li>${esc(r.from)} → ${esc(r.to)}</li>`).join('')
-      + `</ul><span class="rv-repair-note">這是交付缺陷,正解應請廠商在 DCC 端改名重匯。</span></div>`;
+function repairHTML(a){
+  return `<div class="rv-repair">🛠 已自動修復 ${a.renames.length} 個重複 Model 命名(否則動畫會歪):<ul>`
+    + a.renames.map(r=>`<li>${esc(r.from)} → ${esc(r.to)}</li>`).join('')
+    + `</ul><span class="rv-repair-note">這是交付缺陷,正解應請廠商在 DCC 端改名重匯。</span></div>`;
+}
+function updateTabDots(a){
+  const matDot = (a && ((a.missing && a.missing.length) || (a.renames && a.renames.length)));
+  const revDot = (G.reviewMode && a && a.eval && !a.eval.pass);
+  const matBtn = document.querySelector('.pvtab[data-tab="mat"]');
+  const revBtn = $('pvTabReview');
+  if (matBtn) matBtn.innerHTML = '材質 / 貼圖' + (matDot ? ' <span class="tabdot">●</span>' : '');
+  if (revBtn){
+    revBtn.innerHTML = '驗收' + (revDot ? ' <span class="tabdot">●</span>' : '');
+    revBtn.hidden = false;   // 一律顯示;未啟用驗收模式時 pane 內給提示
   }
-  // 達標判定
+}
+function reviewConclusion(a){
+  if(!a.stats) return null;
+  const parts=[];
+  if(getSpec().enabled && a.eval)
+    parts.push(a.eval.pass ? '達標:符合目前驗收規格。' : `未達標:${a.eval.fails.length} 項未過(${a.eval.fails.join('、')})。`);
+  if(a.renames && a.renames.length) parts.push(`已自動修復 ${a.renames.length} 處重複骨骼命名(交付缺陷,建議回報廠商)。`);
+  if(G.baseline && a.diff){
+    if(a.diff.status==='new') parts.push('本版為新檔,上一版沒有此模型。');
+    else if(a.diff.status==='same') parts.push('與上一版指標相同。');
+    else if(a.diff.status==='changed'){
+      const bits=a.diff.changes.slice(0,3).map(c=> c.text?`${c.label}(${c.text})`:`${c.label} ${c.from}→${c.to}`);
+      parts.push(`與上一版 ${a.diff.changes.length} 項變更:${bits.join('、')}${a.diff.changes.length>3?'…':''}。`);
+    }
+  }
+  const s=a.stats;
+  parts.push(`三角面 ${fmtNum(s.tris)}、骨骼 ${s.bones}、材質 ${a.materialCount|0}、貼圖 ${a.texCount|0}${(a.missing&&a.missing.length)?`(缺 ${a.missing.length})`:''}。`);
+  return parts.join(' ');
+}
+function conclusionHTML(a){
+  const txt=reviewConclusion(a); if(!txt) return '';
+  const cls = (getSpec().enabled && a.eval) ? (a.eval.pass?'concl-ok':'concl-bad') : 'concl-neutral';
+  return `<div class="rv-concl ${cls}"><div class="concl-h">驗收結論</div><div>${esc(txt)}</div></div>`;
+}
+function noteHTML(a){
+  return `<div class="rv-note"><label>補充描述 / 驗收備註</label>
+    <textarea id="pvNote" rows="3" placeholder="輸入對此模型的驗收備註、需回報事項、與廠商溝通紀錄…">${esc(a.note||'')}</textarea></div>`;
+}
+function bindNote(a){
+  const t=$('pvNote'); if(!t) return;
+  t.addEventListener('input', ()=>{ a.note=t.value; markDirty(); });
+}
+function renderReviewSection(a){
+  const wrap = $('pvReview');
+  if (!wrap) return;
+  updateTabDots(a);
+  let html='';
+  if (!G.reviewMode){
+    html = `<div class="rv-muted">未啟用驗收模式。於清單上方點「驗收」開啟後,可在此看達標判定與版本差異。</div>`
+      + (a.renames && a.renames.length ? repairHTML(a) : '')
+      + noteHTML(a);
+    wrap.innerHTML = html; bindNote(a); return;
+  }
+  html += conclusionHTML(a);
+  if (a.renames && a.renames.length) html += repairHTML(a);
   if (getSpec().enabled){
     if (a.eval){
       if (a.eval.pass) html += `<div class="rv-pass">✓ 達標</div>`;
       else html += `<div class="rv-fail">✗ 未達標<ul>${a.eval.fails.map(f=>`<li>${esc(f)}</li>`).join('')}</ul></div>`;
     } else html += `<div class="rv-muted">尚未分析(開啟即分析)</div>`;
   }
-  // 版本差異
   if (G.baseline){
     if (!a.diff) html += `<div class="rv-muted">尚未分析,無法比對</div>`;
     else if (a.diff.status === 'new') html += `<div class="rv-new">◆ 新檔(上一版沒有此模型)</div>`;
@@ -1306,9 +1882,9 @@ function renderReviewSection(a){
       html += `</table>`;
     }
   }
-  if (!getSpec().enabled && !G.baseline)
-    html = `<div class="rv-muted">尚未設定驗收規格或載入版本基準。點頂部「驗收設定」。</div>`;
+  html += noteHTML(a);
   wrap.innerHTML = html;
+  bindNote(a);
 }
 function renderDiag(diag){
   const wrap = $('pvDiag');
@@ -1400,6 +1976,13 @@ function renderMaterialsUI(missing){
       pendingSlot = { mi:+el.dataset.mi, slot:el.dataset.slot, cs:el.dataset.cs };
       texInput.click();
     });
+    el.addEventListener('dragover', e=>{ if (draggedTex){ e.preventDefault(); el.classList.add('drop'); } });
+    el.addEventListener('dragleave', ()=> el.classList.remove('drop'));
+    el.addEventListener('drop', e=>{
+      e.preventDefault(); el.classList.remove('drop');
+      if (!draggedTex) return;
+      applyTexToSlot(+el.dataset.mi, el.dataset.slot, el.dataset.cs, draggedTex);
+    });
   });
   wrap.querySelectorAll('.clr').forEach(el=>{
     el.addEventListener('click', e=>{ e.stopPropagation(); clearSlot(+el.dataset.mi, el.dataset.slot); });
@@ -1437,6 +2020,50 @@ function readAsDataURL(file){
     r.onerror = ()=>rej(r.error || new Error('讀取失敗'));
     r.readAsDataURL(file);
   });
+}
+
+/* ── 資料夾貼圖清單 + 拖拉指派 ── */
+let draggedTex = null;
+function renderTexPalette(a){
+  const wrap = $('pvTexPalette'); if (!wrap) return;
+  const list = folderTextures(a);
+  if (!list.length){ wrap.innerHTML = `<div class="rv-muted">此資料夾下沒有可用的圖片檔。</div>`; return; }
+  wrap.innerHTML = list.map(im=>{
+    const ext = (im.name.split('.').pop()||'').toLowerCase();
+    const preview = (ext==='tga'||ext==='dds'||ext==='bmp')
+      ? `<span class="tp-ext">${esc(ext.toUpperCase())}</span>`
+      : `<img src="${im.url}" loading="lazy" alt="">`;
+    return `<div class="texpal-item" draggable="true" data-url="${im.url}" data-name="${esc(im.name)}" data-ext="${ext}" title="${esc(im.name)}\n拖拉到右側貼圖槽以指派">
+      <div class="tp-thumb">${preview}</div><span class="tp-name">${esc(im.name)}</span></div>`;
+  }).join('');
+  wrap.querySelectorAll('.texpal-item').forEach(el=>{
+    el.addEventListener('dragstart', e=>{
+      draggedTex = { url:el.dataset.url, name:el.dataset.name, ext:el.dataset.ext };
+      el.classList.add('dragging');
+      try{ e.dataTransfer.setData('text/plain', el.dataset.name); e.dataTransfer.effectAllowed='copy'; }catch(_){}
+    });
+    el.addEventListener('dragend', ()=>{ draggedTex=null; el.classList.remove('dragging'); document.querySelectorAll('.sw2.drop').forEach(s=>s.classList.remove('drop')); });
+  });
+}
+async function urlToDataURL(url){
+  const blob = await (await fetch(url)).blob();
+  return await new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=()=>rej(r.error||new Error('讀取失敗')); r.readAsDataURL(blob); });
+}
+async function applyTexToSlot(mi, slot, cs, tex){
+  const mat = pvMaterials[mi]; if (!mat) return;
+  try{
+    const data = await urlToDataURL(tex.url);
+    const t = await makeTextureFromData(data, tex.ext, cs);
+    if (mat[slot] && mat[slot].isTexture) mat[slot].dispose();
+    mat[slot] = t;
+    if (slot === 'alphaMap'){ mat.transparent = true; }
+    mat.needsUpdate = true;
+    recordOverride(mi, slot, { name:tex.name, cs, ext:tex.ext, data });
+    recountTextures();
+    renderMaterialsUI(G.curAsset ? G.curAsset.missing : []);
+    markDirty();
+    toast(`已指派「${tex.name}」到${TEX_SLOTS.find(s=>s.key===slot)?.label||slot}`);
+  }catch(err){ toast('貼圖套用失敗', 3500); }
 }
 function makeTextureFromData(data, ext, cs){
   return new Promise((resolve, reject)=>{
@@ -1560,13 +2187,50 @@ $('pvUp').addEventListener('click', ()=>{
   if (pvModel){ pvFrameInfo = frameToCamera(pvModel, pvCam, 1.5); pvControls.target.copy(pvFrameInfo.center); pvControls.update(); }
   if (G.curAsset) renderReviewSection(G.curAsset);
 });
-$('pvWire').addEventListener('click', ()=>{
-  pvWire = !pvWire; $('pvWire').classList.toggle('on', pvWire);
-  if (pvModel) pvModel.traverse(o=>{ if (o.isMesh){
-    const mats = Array.isArray(o.material)?o.material:[o.material];
-    mats.forEach(m=>{ if (m) m.wireframe = pvWire; });
-  }});
+/* Debug Flow Bar:顯示輔助開關 */
+function toggleDisp(key){ pvDisp[key] = !pvDisp[key]; applyDisplay(); }
+$('fcGrid').addEventListener('click', ()=>toggleDisp('grid'));
+$('fcAxes').addEventListener('click', ()=>toggleDisp('axes'));
+$('fcSkel').addEventListener('click', ()=>toggleDisp('skeleton'));
+$('fcBox').addEventListener('click', ()=>toggleDisp('bbox'));
+$('pvBoxSel').addEventListener('change', e=>setBoxTarget(e.target.value==='all'?'all':+e.target.value));
+$('fcWire').addEventListener('click', ()=>toggleDisp('wire'));
+$('fcStats').addEventListener('click', ()=>toggleDisp('stats'));
+$('pvBgSel').addEventListener('change', e=>{
+  pvDisp.bg = e.target.value; applyBackground();
+  $('pvSolidRow').style.display = (pvDisp.bg === 'solid') ? 'flex' : 'none';
 });
+const VP_POPS = ['pvGridPop','pvCamPop','pvLightPop'];
+function togglePop(id){
+  const willOpen = !$(id).classList.contains('open');
+  VP_POPS.forEach(p=> $(p).classList.toggle('open', p===id && willOpen));
+}
+$('pvGridBtn').addEventListener('click', ()=>togglePop('pvGridPop'));
+$('pvCamBtn').addEventListener('click', ()=>{ applyCamState(); togglePop('pvCamPop'); });
+$('pvLightBtn').addEventListener('click', ()=>togglePop('pvLightPop'));
+
+/* 攝影機 */
+$('camFov').addEventListener('input', e=>{ pvCamState.fov = parseFloat(e.target.value); if(!pvCamState.ortho){ pvCam.fov=pvCamState.fov; pvCam.updateProjectionMatrix(); } });
+$('camOrtho').addEventListener('change', e=>{ setProjection(e.target.checked); });
+$('camAuto').addEventListener('change', e=>{ pvCamState.autoRotate=e.target.checked; if(pvControls) pvControls.autoRotate=e.target.checked; });
+document.querySelectorAll('#pvCamPop .vp-views button').forEach(b=> b.addEventListener('click', ()=>setView(b.dataset.v)));
+
+/* 光照 */
+$('ltExp').addEventListener('input', e=>{ pvLight.exposure=parseFloat(e.target.value); applyLight(); });
+$('ltKey').addEventListener('input', e=>{ pvLight.key=parseFloat(e.target.value); applyLight(); });
+$('ltHemi').addEventListener('input', e=>{ pvLight.hemi=parseFloat(e.target.value); applyLight(); });
+$('ltFill').addEventListener('input', e=>{ pvLight.fill=parseFloat(e.target.value); applyLight(); });
+$('gridCell').addEventListener('input', e=>{ pvDisp.gridAuto=false; pvDisp.gridCell = Math.max(0.01, parseFloat(e.target.value)||1); buildGrid(); updateGridInfo(); });
+$('gridCount').addEventListener('input', e=>{ pvDisp.gridAuto=false; pvDisp.gridCount = Math.max(1, Math.min(parseInt(e.target.value)||20, 400)); buildGrid(); updateGridInfo(); });
+$('gridUnit').addEventListener('input', e=>{ pvDisp.gridUnit = e.target.value; updateGridInfo(); renderDims(); updateDimHud(); });
+$('gridColorInp').addEventListener('input', e=>{ pvDisp.gridColor = e.target.value; buildGrid(); });
+$('gridCenterInp').addEventListener('input', e=>{ pvDisp.gridCenter = e.target.value; buildGrid(); });
+$('gridOpac').addEventListener('input', e=>{ pvDisp.gridOpacity = parseFloat(e.target.value); buildGrid(); });
+$('pvSolidColor').addEventListener('input', e=>{ pvDisp.solidColor = e.target.value; if (pvDisp.bg==='solid') applyBackground(); });
+function updateGridInfo(){
+  const total = (pvDisp.gridCell * pvDisp.gridCount);
+  $('gridInfo').textContent = `每格 ${pvDisp.gridCell}${pvDisp.gridUnit} · ${pvDisp.gridCount} 格 · 全幅 ${(+total.toFixed(4))}${pvDisp.gridUnit}`;
+}
 $('pvFrame').addEventListener('click', ()=>{
   if (!pvModel) return;
   pvFrameInfo = frameToCamera(pvModel, pvCam, 1.5);
@@ -1575,6 +2239,7 @@ $('pvFrame').addEventListener('click', ()=>{
 $('pvPlay').addEventListener('click', ()=>{
   pvPlaying = !pvPlaying;
   $('pvPlay').textContent = pvPlaying ? '❚❚' : '▶';
+  if (pvModel) renderAnimList(pvModel.animations);
 });
 $('pvClip').addEventListener('change', e=>{ pvPlaying = true; $('pvPlay').textContent='❚❚'; playClipIndex(+e.target.value); });
 $('pvSeek').addEventListener('input', e=>{
@@ -1592,21 +2257,20 @@ $('pvSeek').addEventListener('pointerup',   ()=>{ pvSeeking = false; });
 $('pvClose').addEventListener('click', closePreview);
 $('pvReload').addEventListener('click', ()=>{ if (G.selected >= 0) loadIntoPreview(G.assets[G.selected]); });
 
-/* ───────── 版面調整(寬度 / 高度 / 最大化) ───────── */
-const PV_DEFAULT_W = 520, PV_DEFAULT_H = 340;
+/* ───────── 版面調整(寬度 / Inspector / 最大化) ───────── */
+const PV_DEFAULT_W = 780, PV_DEFAULT_INSP = 300;
 let layoutDrag = null;
 
 function setPreviewWidth(px){
-  const w = Math.max(340, Math.min(px, window.innerWidth - 240));
+  const w = Math.max(520, Math.min(px, window.innerWidth - 240));
   const p = $('preview');
   p.style.flexBasis = w + 'px';
   p.style.width = w + 'px';
 }
-function setViewportHeight(px){
-  const wrap = $('pvVpWrap');
-  const previewH = $('preview').clientHeight;
-  const h = Math.max(180, Math.min(px, previewH - 150));
-  wrap.style.height = h + 'px';
+function setInspectorWidth(px){
+  const w = Math.max(220, Math.min(px, 560));
+  $('pvInspector').style.flexBasis = w + 'px';
+  $('pvInspector').style.width = w + 'px';
 }
 
 $('pvGripX').addEventListener('pointerdown', e=>{
@@ -1616,27 +2280,42 @@ $('pvGripX').addEventListener('pointerdown', e=>{
   $('pvGripX').setPointerCapture(e.pointerId);
   document.body.style.cursor = 'col-resize';
 });
-$('pvGripY').addEventListener('pointerdown', e=>{
-  if ($('preview').classList.contains('max')) return;
-  layoutDrag = { kind:'y', startY:e.clientY, startH:$('pvVpWrap').getBoundingClientRect().height };
-  $('pvGripY').classList.add('drag');
-  $('pvGripY').setPointerCapture(e.pointerId);
-  document.body.style.cursor = 'row-resize';
+$('pvInspGrip').addEventListener('pointerdown', e=>{
+  layoutDrag = { kind:'i', startX:e.clientX, startW:$('pvInspector').getBoundingClientRect().width };
+  $('pvInspGrip').classList.add('drag');
+  $('pvInspGrip').setPointerCapture(e.pointerId);
+  document.body.style.cursor = 'col-resize';
 });
 window.addEventListener('pointermove', e=>{
   if (!layoutDrag) return;
   if (layoutDrag.kind === 'x') setPreviewWidth(layoutDrag.startW - (e.clientX - layoutDrag.startX)); // 面板在右,往左拖變寬
-  else setViewportHeight(layoutDrag.startH + (e.clientY - layoutDrag.startY));
+  else if (layoutDrag.kind === 'i') setInspectorWidth(layoutDrag.startW - (e.clientX - layoutDrag.startX)); // inspector 在右
 });
 window.addEventListener('pointerup', ()=>{
   if (!layoutDrag) return;
   layoutDrag = null;
-  $('pvGripX').classList.remove('drag'); $('pvGripY').classList.remove('drag');
+  $('pvGripX').classList.remove('drag'); $('pvInspGrip').classList.remove('drag');
   $('preview').classList.remove('dragging');
   document.body.style.cursor = '';
 });
 $('pvGripX').addEventListener('dblclick', ()=> setPreviewWidth(PV_DEFAULT_W));
-$('pvGripY').addEventListener('dblclick', ()=>{ $('pvVpWrap').style.height = PV_DEFAULT_H + 'px'; });
+$('pvInspGrip').addEventListener('dblclick', ()=> setInspectorWidth(PV_DEFAULT_INSP));
+
+/* Inspector 收合 */
+$('pvInspToggle').addEventListener('click', ()=>{
+  const collapsed = $('preview').classList.toggle('inspCollapsed');
+  $('pvInspToggle').classList.toggle('on', !collapsed);
+});
+
+/* Inspector Tab 切換 */
+function setTab(tab){
+  document.querySelectorAll('.pvtab').forEach(b=>b.classList.toggle('on', b.dataset.tab === tab));
+  document.querySelectorAll('.pvpane').forEach(p=>{ p.hidden = (p.dataset.pane !== tab); });
+  if ($('preview').classList.contains('inspCollapsed')){   // 點 tab 時自動展開
+    $('preview').classList.remove('inspCollapsed'); $('pvInspToggle').classList.add('on');
+  }
+}
+document.querySelectorAll('.pvtab').forEach(b=> b.addEventListener('click', ()=> setTab(b.dataset.tab)));
 
 function toggleMax(force){
   const p = $('preview');
@@ -1843,7 +2522,7 @@ baseInput.addEventListener('change', async ()=>{
 function exportReport(){
   const analyzed = G.assets.filter(a=>a.stats);
   if (!analyzed.length){ toast('尚無已分析的模型'); return; }
-  const rows = [['路徑','檔名','達標','未達原因','三角面','骨骼','材質','貼圖','缺圖','動畫數','重複命名','版本狀態','差異']];
+  const rows = [['路徑','檔名','達標','未達原因','三角面','骨骼','材質','貼圖','缺圖','動畫數','重複命名','版本狀態','差異','驗收結論','補充描述']];
   analyzed.forEach(a=>{
     const ev = a.eval, df = a.diff, s = a.stats;
     const diffTxt = df && df.changes && df.changes.length
@@ -1858,13 +2537,14 @@ function exportReport(){
       (a.clips||[]).length, dup,
       df ? ({ same:'無變更', changed:'有變更', new:'新檔' }[df.status] || '') : '(無基準)',
       diffTxt,
+      reviewConclusion(a) || '', a.note || '',
     ]);
   });
   // baseline 中已消失的檔案
   if (G.baseline && G.baseline.assets){
     const cur = new Set(G.assets.map(a=>a.path));
     Object.keys(G.baseline.assets).filter(p=>!cur.has(p)).forEach(p=>{
-      rows.push([dirname(p), basename(p), '缺少', '上一版存在但本版缺少', '', '', '', '', '', '', '', '移除', '']);
+      rows.push([dirname(p), basename(p), '缺少', '上一版存在但本版缺少', '', '', '', '', '', '', '', '移除', '', '', '']);
     });
   }
   const csv = '\ufeff' + rows.map(r=>r.map(csvCell).join(',')).join('\r\n');
@@ -1936,10 +2616,12 @@ function saveProject(){
   G.assets.forEach(a=>{
     const hasOv = a.overrides && Object.keys(a.overrides).length;
     const hasAxis = a.upAxis === 'Y' || a.upAxis === 'Z';
-    if (!hasOv && !hasAxis) return;
+    const hasNote = a.note && a.note.trim();
+    if (!hasOv && !hasAxis && !hasNote) return;
     const rec = {};
     if (hasAxis) rec.upAxis = a.upAxis;
     if (hasOv)   rec.overrides = a.overrides;
+    if (hasNote) rec.note = a.note;
     assets[a.path] = rec;
   });
   const proj = {
@@ -2001,6 +2683,7 @@ function applyPendingProject(){
     if (!rec) return;
     if (rec.overrides) a.overrides = rec.overrides;
     if (rec.upAxis)    a.upAxis = rec.upAxis;
+    if (rec.note)      a.note = rec.note;
     a.state = 'pending'; a.thumb = null;    // 縮圖重生以反映覆寫
     n++;
   });
