@@ -30,6 +30,9 @@
   #top .dot{ width:11px; height:11px; border-radius:3px; background:var(--accent); }
   #top .sub{ color:var(--muted); font-size:11.5px; }
   .spacer{ flex:1 1 auto; }
+  .proj-label{ margin-left:10px; font-size:12px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:34vw; }
+  .proj-label .pl-name{ color:var(--text); font-weight:600; }
+  .proj-label .pl-dim{ color:var(--dim); }
   .tbtn{
     background:var(--panel-2); border:1px solid var(--line); color:var(--text);
     border-radius:6px; padding:6px 13px; font-size:12px; cursor:pointer;
@@ -490,9 +493,9 @@
   <button class="tbtn primary" id="pickBtn">選擇資料夾</button>
   <button class="tbtn" id="ghBtn" title="從 GitHub Releases 載入素材">GitHub</button>
   <button class="tbtn" id="rescanBtn" disabled>重新掃描</button>
+  <span id="curProjLabel" class="proj-label"></span>
   <div class="spacer"></div>
-  <button class="tbtn" id="saveProjBtn" disabled>儲存專案<span id="dirtyDot" class="dirty-dot">●</span></button>
-  <button class="tbtn" id="loadProjBtn">載入專案</button>
+  <button class="tbtn" id="projBtn" title="儲存 / 載入專案">專案<span id="dirtyDot" class="dirty-dot">●</span></button>
 </div>
 
 <div id="body">
@@ -930,7 +933,7 @@ async function ingest(entries, rootName, source=null){
   await mapLimit(G.assets, 8, async a=>{ try{ a.size = (await entryFile(a)).size; }catch(_){} });
 
   $('rescanBtn').disabled = false;
-  $('saveProjBtn').disabled = false;
+  updateProjLabel();
   renderGrid();
   if (G.pendingProject) applyPendingProject();
   if (G.reviewMode || G.baseline || (G.spec && G.spec.enabled)) syncReviewUI();
@@ -3052,6 +3055,12 @@ function saveSpecFromModal(){
 /* ───────── 專案狀態(JSON) ───────── */
 function markDirty(){ G.dirty = true; updateDirty(); }
 function updateDirty(){ $('dirtyDot').classList.toggle('on', !!G.dirty); }
+function updateProjLabel(){                          // 工具列顯示目前專案名稱
+  const el = $('curProjLabel'); if (!el) return;
+  if (G.curProjName) el.innerHTML = `<span class="pl-dim">專案:</span><span class="pl-name">${esc(G.curProjName)}</span>`;
+  else if (G.assets.length) el.innerHTML = `<span class="pl-dim">未儲存專案 · ${esc(G.rootName||'')}</span>`;
+  else el.innerHTML = '';
+}
 
 /* ───────── IndexedDB:存放本機資料夾 handle(localStorage 存不了 handle)───────── */
 const IDB_NAME = 'fbxmgr', IDB_STORE = 'dirHandles';
@@ -3140,7 +3149,7 @@ async function saveProjectToBrowser(){
   else { rec = { id, name, ...data }; list.unshift(rec); G.curProjId = id; }
   G.curProjName = name;
   if (!saveProjects(list)) return;
-  G.dirty = false; updateDirty();
+  G.dirty = false; updateDirty(); updateProjLabel();
   renderProjList();
   const n = Object.keys(data.assets).length;
   toast(`已儲存到瀏覽器:「${name}」(${n} 項自訂)`);
@@ -3164,7 +3173,7 @@ function deleteSavedProject(id){
   const p = list.find(x => x.id === id); if (!p) return;
   if (p.source && p.source.handleKey) idbDel(p.source.handleKey).catch(()=>{});   // 一併清掉記住的資料夾
   saveProjects(list.filter(x => x.id !== id));
-  if (G.curProjId === id){ G.curProjId = null; G.curProjName = ''; }
+  if (G.curProjId === id){ G.curProjId = null; G.curProjName = ''; updateProjLabel(); }
   renderProjList();
   toast('已刪除:' + (p.name||'專案'));
 }
@@ -3285,7 +3294,7 @@ function startRenameProject(id, rowEl){
       const nv = inp.value.trim();
       if (nv){
         const list = loadProjects(); const p = list.find(x => x.id === id);
-        if (p){ p.name = nv; saveProjects(list); if (G.curProjId === id) G.curProjName = nv; }
+        if (p){ p.name = nv; saveProjects(list); if (G.curProjId === id){ G.curProjName = nv; updateProjLabel(); } }
       }
     }
     renderProjList();
@@ -3351,8 +3360,7 @@ function applyPendingProject(){
   G.dirty = false; updateDirty();
   return n;
 }
-$('saveProjBtn').addEventListener('click', openProjModal);
-$('loadProjBtn').addEventListener('click', openProjModal);
+$('projBtn').addEventListener('click', openProjModal);
 $('projClose').addEventListener('click', closeProjModal);
 $('projCancel').addEventListener('click', closeProjModal);
 $('projModal').addEventListener('click', e=>{ if (e.target === $('projModal')) closeProjModal(); });
