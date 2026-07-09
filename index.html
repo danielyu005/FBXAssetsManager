@@ -899,6 +899,7 @@ function pickViaInput(){
   });
 }
 
+let projToAdopt = null;   // openSavedProject 交棒:本次 ingest 要關聯的已存專案(否則視為新載入)
 async function ingest(entries, rootName, source=null){
   // 清理上一批
   G.blobURLs.forEach(u=>URL.revokeObjectURL(u)); G.blobURLs = [];
@@ -907,6 +908,8 @@ async function ingest(entries, rootName, source=null){
   G.selected = -1;
 
   G.entries = entries; G.rootName = rootName; G.source = source;
+  if (projToAdopt){ G.curProjId = projToAdopt.id; G.curProjName = projToAdopt.name; projToAdopt = null; }
+  else { G.curProjId = null; G.curProjName = ''; }   // 新載入 = 尚未關聯任何已存專案(避免存檔誤蓋)
   const images = entries.filter(e => SUPPORTED_TEX.test(e.name));
   const fbx = entries.filter(e => /\.fbx$/i.test(e.name));
 
@@ -3176,7 +3179,7 @@ async function openSavedProject(id){
     $('texOnly').checked = !!p.ui.texOnly;
     if (p.ui.search != null) $('search').value = p.ui.search;
   }
-  G.curProjId = p.id; G.curProjName = p.name || '';
+  projToAdopt = { id:p.id, name:p.name || '' };   // 下一次 ingest 才關聯此專案(重載完成後)
   closeProjModal();
   const s = p.source;
   if (s && s.kind === 'github'){
