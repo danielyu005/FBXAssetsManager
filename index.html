@@ -328,6 +328,23 @@
     border-radius:7px; padding:8px 9px; font-size:12px; font-family:var(--sans); line-height:1.5;
   }
   .rv-note textarea:focus{ outline:none; border-color:var(--accent); }
+  /* 驗收清單(歷史紀錄) */
+  .rv-log{ margin-top:14px; }
+  .rv-log-h{ display:flex; align-items:center; justify-content:space-between; margin-bottom:7px; }
+  .rv-log-h span{ font-size:10.5px; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; }
+  .rv-log-empty{ font-size:11.5px; color:var(--dim); padding:2px 0; }
+  .rv-log-item{ border:1px solid var(--line); border-radius:8px; padding:8px 9px; margin-bottom:8px; background:var(--panel-2); }
+  .rv-log-top{ display:flex; align-items:center; gap:6px; margin-bottom:6px; }
+  .rv-log-title{ flex:1; min-width:0; background:var(--panel); border:1px solid var(--line); color:var(--text);
+    border-radius:5px; padding:4px 7px; font-size:11.5px; font-family:var(--mono); }
+  .rv-log-title:focus{ outline:none; border-color:var(--accent); }
+  .rv-log-del{ flex:none; background:none; border:1px solid var(--line); color:var(--muted); border-radius:5px;
+    width:24px; height:24px; cursor:pointer; font-size:11px; }
+  .rv-log-del:hover{ border-color:var(--bad); color:var(--bad); }
+  .rv-log-text{ width:100%; box-sizing:border-box; resize:vertical; min-height:44px;
+    background:var(--panel); border:1px solid var(--line); color:var(--text);
+    border-radius:6px; padding:7px 8px; font-size:11.5px; font-family:var(--sans); line-height:1.5; }
+  .rv-log-text:focus{ outline:none; border-color:var(--accent); }
   .dim-overall{ font-size:12px; color:var(--text); padding:5px 8px; margin-bottom:6px;
     background:var(--panel-2); border:1px solid var(--line); border-radius:6px; }
   .dim-overall b{ color:var(--accent); font-family:var(--mono); }
@@ -2194,6 +2211,51 @@ function bindNote(a){
   const t=$('pvNote'); if(!t) return;
   t.addEventListener('input', ()=>{ a.note=t.value; markDirty(); });
 }
+/* 驗收清單(歷史紀錄):每個模型各自一份,存進專案 */
+function nowStamp(){
+  const d=new Date(), p=n=>String(n).padStart(2,'0');
+  return `${d.getFullYear()}/${p(d.getMonth()+1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+function logHTML(a){
+  const log = a.reviewLog || [];
+  const items = log.map(it=>`
+    <div class="rv-log-item" data-id="${it.id}">
+      <div class="rv-log-top">
+        <input class="rv-log-title" data-id="${it.id}" value="${esc(it.title||'')}" placeholder="標題">
+        <button class="rv-log-del" data-id="${it.id}" title="刪除此紀錄">🗑</button>
+      </div>
+      <textarea class="rv-log-text" data-id="${it.id}" rows="2" placeholder="驗收結論 / 建議…">${esc(it.text||'')}</textarea>
+    </div>`).join('');
+  return `<div class="rv-log">
+    <div class="rv-log-h"><span>驗收清單</span><button class="tbtn sm" id="rvLogAdd">＋ 新增紀錄</button></div>
+    <div id="rvLogList">${items || '<div class="rv-log-empty">尚無紀錄。按「＋ 新增紀錄」將目前驗收結論存為一筆歷史。</div>'}</div>
+  </div>`;
+}
+function bindReviewLog(a){
+  const add=$('rvLogAdd'); if(!add) return;
+  add.addEventListener('click', ()=>{
+    if(!a.reviewLog) a.reviewLog=[];
+    a.reviewLog.unshift({ id:'r_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),
+      title:nowStamp(), text:reviewConclusion(a)||'' });
+    markDirty();
+    renderReviewSection(a);
+    const first=$('rvLogList') && $('rvLogList').querySelector('.rv-log-title');
+    if(first){ first.focus(); first.select(); }
+  });
+  const list=$('rvLogList'); if(!list) return;
+  const find=id=>(a.reviewLog||[]).find(x=>x.id===id);
+  list.addEventListener('input', e=>{
+    const t=e.target, it=find(t.dataset.id); if(!it) return;
+    if(t.classList.contains('rv-log-title')) it.title=t.value;
+    else if(t.classList.contains('rv-log-text')) it.text=t.value;
+    markDirty();
+  });
+  list.addEventListener('click', e=>{
+    const btn=e.target.closest('.rv-log-del'); if(!btn) return;
+    a.reviewLog=(a.reviewLog||[]).filter(x=>x.id!==btn.dataset.id);
+    markDirty(); renderReviewSection(a);
+  });
+}
 function renderReviewSection(a){
   const wrap = $('pvReview');
   if (!wrap) return;
@@ -2202,8 +2264,8 @@ function renderReviewSection(a){
   if (!G.reviewMode){
     html = `<div class="rv-muted">未啟用驗收模式。於清單上方點「驗收」開啟後,可在此看達標判定與版本差異。</div>`
       + (a.renames && a.renames.length ? repairHTML(a) : '')
-      + noteHTML(a);
-    wrap.innerHTML = html; bindNote(a); return;
+      + noteHTML(a) + logHTML(a);
+    wrap.innerHTML = html; bindNote(a); bindReviewLog(a); return;
   }
   html += conclusionHTML(a);
   if (a.renames && a.renames.length) html += repairHTML(a);
@@ -2229,9 +2291,10 @@ function renderReviewSection(a){
       html += `</table>`;
     }
   }
-  html += noteHTML(a);
+  html += noteHTML(a) + logHTML(a);
   wrap.innerHTML = html;
   bindNote(a);
+  bindReviewLog(a);
 }
 function renderDiag(diag){
   const wrap = $('pvDiag');
@@ -3031,11 +3094,13 @@ function collectProjectData(){
     const hasOv = a.overrides && Object.keys(a.overrides).length;
     const hasAxis = a.upAxis === 'Y' || a.upAxis === 'Z';
     const hasNote = a.note && a.note.trim();
-    if (!hasOv && !hasAxis && !hasNote) return;
+    const hasLog = a.reviewLog && a.reviewLog.length;
+    if (!hasOv && !hasAxis && !hasNote && !hasLog) return;
     const rec = {};
     if (hasAxis) rec.upAxis = a.upAxis;
     if (hasOv)   rec.overrides = a.overrides;
     if (hasNote) rec.note = a.note;
+    if (hasLog)  rec.reviewLog = a.reviewLog;
     assets[a.path] = rec;
   });
   return {
@@ -3272,6 +3337,7 @@ function applyPendingProject(){
     if (rec.overrides) a.overrides = rec.overrides;
     if (rec.upAxis)    a.upAxis = rec.upAxis;
     if (rec.note)      a.note = rec.note;
+    if (rec.reviewLog) a.reviewLog = rec.reviewLog;
     a.state = 'pending'; a.thumb = null;    // 縮圖重生以反映覆寫
     n++;
   });
