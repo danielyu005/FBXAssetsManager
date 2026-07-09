@@ -374,6 +374,13 @@
   .pvtab .tabdot{ color:var(--bad); margin-left:3px; }
   #pvTabBody{ flex:1 1 auto; overflow:auto; padding:14px; min-height:0; }
   .pvpane[hidden]{ display:none; }
+  /* 材質/貼圖分頁:上(貼圖資源)/下(材質槽)可拖曳分隔 */
+  .pvpane[data-pane="mat"]:not([hidden]){ display:flex; flex-direction:column; height:100%; min-height:0; }
+  #matTop{ flex:0 0 auto; height:170px; min-height:52px; overflow:auto; }
+  #matBottom{ flex:1 1 auto; min-height:0; overflow:auto; }
+  #matGrip{ flex:0 0 auto; height:12px; margin:3px 0; cursor:row-resize; position:relative; touch-action:none; }
+  #matGrip::before{ content:''; position:absolute; left:0; right:0; top:50%; transform:translateY(-50%); height:3px; border-radius:2px; background:var(--line); transition:background .12s; }
+  #matGrip:hover::before, #matGrip.drag::before{ background:var(--accent); }
   #pvInspToggle.on{ background:var(--accent-dim); border-color:var(--accent); }
   .sec{ margin-bottom:16px; }
   .sec:last-child{ margin-bottom:0; }
@@ -620,17 +627,22 @@
             </div>
           </div>
           <div class="pvpane" data-pane="mat" hidden>
-            <div class="sec" id="pvPaletteSec">
-              <h4>資料夾貼圖 <span class="h4hint">拖到下方槽位指派</span></h4>
-              <div id="pvTexPalette"></div>
+            <div id="matTop">
+              <div class="sec" id="pvPaletteSec">
+                <h4>資料夾貼圖 <span class="h4hint">拖到下方槽位指派</span></h4>
+                <div id="pvTexPalette"></div>
+              </div>
             </div>
-            <div class="sec" id="pvTexSec">
-              <h4>貼圖 / 材質 <span class="h4hint">拖入或點擊上載</span></h4>
-              <div id="pvMats"></div>
-            </div>
-            <div class="sec" id="pvDiagSec">
-              <h4>貼圖診斷 <span class="h4hint">配對狀況</span></h4>
-              <div id="pvDiag"></div>
+            <div id="matGrip" title="拖曳調整上下區塊高度(雙擊還原)"></div>
+            <div id="matBottom">
+              <div class="sec" id="pvTexSec">
+                <h4>貼圖 / 材質 <span class="h4hint">拖入或點擊上載</span></h4>
+                <div id="pvMats"></div>
+              </div>
+              <div class="sec" id="pvDiagSec">
+                <h4>貼圖診斷 <span class="h4hint">配對狀況</span></h4>
+                <div id="pvDiag"></div>
+              </div>
             </div>
           </div>
           <div class="pvpane" data-pane="anim" hidden>
@@ -2607,6 +2619,15 @@ function setInspectorWidth(px){
   $('pvInspector').style.flexBasis = w + 'px';
   $('pvInspector').style.width = w + 'px';
 }
+const MAT_DEFAULT_H = 170;
+function setMatTopHeight(px, persist=true){          // 材質分頁上方「貼圖資源」區高度
+  const top = $('matTop'); if (!top) return;
+  const paneH = top.parentElement.clientHeight;      // 分頁隱藏時為 0 → 不套上限(避免還原被壓扁)
+  const max = paneH > 0 ? Math.max(52, paneH - 90) : Infinity;   // 下方材質槽至少留約 90px
+  const h = Math.max(52, Math.min(px, max));
+  top.style.height = h + 'px';
+  if (persist){ try { localStorage.setItem('fbxmgr.matTopH', String(Math.round(h))); } catch(_){} }
+}
 
 $('pvGripX').addEventListener('pointerdown', e=>{
   if ($('preview').classList.contains('max')) return;
@@ -2621,20 +2642,30 @@ $('pvInspGrip').addEventListener('pointerdown', e=>{
   $('pvInspGrip').setPointerCapture(e.pointerId);
   document.body.style.cursor = 'col-resize';
 });
+$('matGrip').addEventListener('pointerdown', e=>{
+  layoutDrag = { kind:'m', startY:e.clientY, startH:$('matTop').getBoundingClientRect().height };
+  $('matGrip').classList.add('drag');
+  $('matGrip').setPointerCapture(e.pointerId);
+  document.body.style.cursor = 'row-resize';
+  e.preventDefault();
+});
 window.addEventListener('pointermove', e=>{
   if (!layoutDrag) return;
   if (layoutDrag.kind === 'x') setPreviewWidth(layoutDrag.startW - (e.clientX - layoutDrag.startX)); // 面板在右,往左拖變寬
   else if (layoutDrag.kind === 'i') setInspectorWidth(layoutDrag.startW - (e.clientX - layoutDrag.startX)); // inspector 在右
+  else if (layoutDrag.kind === 'm') setMatTopHeight(layoutDrag.startH + (e.clientY - layoutDrag.startY)); // 往下拖 → 上方變高
 });
 window.addEventListener('pointerup', ()=>{
   if (!layoutDrag) return;
   layoutDrag = null;
-  $('pvGripX').classList.remove('drag'); $('pvInspGrip').classList.remove('drag');
+  $('pvGripX').classList.remove('drag'); $('pvInspGrip').classList.remove('drag'); $('matGrip').classList.remove('drag');
   $('preview').classList.remove('dragging');
   document.body.style.cursor = '';
 });
 $('pvGripX').addEventListener('dblclick', ()=> setPreviewWidth(PV_DEFAULT_W));
 $('pvInspGrip').addEventListener('dblclick', ()=> setInspectorWidth(PV_DEFAULT_INSP));
+$('matGrip').addEventListener('dblclick', ()=> setMatTopHeight(MAT_DEFAULT_H));
+(function(){ const s = parseInt(localStorage.getItem('fbxmgr.matTopH')||'', 10); if (s) setMatTopHeight(s, false); })();
 
 /* Inspector 收合 */
 $('pvInspToggle').addEventListener('click', ()=>{
@@ -2649,6 +2680,7 @@ function setTab(tab){
   if ($('preview').classList.contains('inspCollapsed')){   // 點 tab 時自動展開
     $('preview').classList.remove('inspCollapsed'); $('pvInspToggle').classList.add('on');
   }
+  if (tab === 'mat') setMatTopHeight($('matTop').getBoundingClientRect().height, false);  // 分頁可見後重新套上限
 }
 document.querySelectorAll('.pvtab').forEach(b=> b.addEventListener('click', ()=> setTab(b.dataset.tab)));
 
