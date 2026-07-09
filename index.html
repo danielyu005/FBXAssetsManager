@@ -742,7 +742,7 @@
         <button class="tbtn sm" id="projImport" style="float:right;">匯入檔案…</button>
       </div>
       <div class="proj-list" id="projList"></div>
-      <div class="sp-hint">專案只存來源與設定(覆寫/備註/驗收),不含 FBX 本身。開啟時會依來源重新載入:GitHub 自動重抓(私有庫需再輸入 Token)、本機請重選資料夾。</div>
+      <div class="sp-hint">專案只存來源與設定(覆寫/備註/驗收),不含 FBX 本身。開啟時依來源重新載入:GitHub 自動重抓(私有庫需再輸入 Token);本機資料夾在 Chrome/Edge 會記住,開啟時按一次「允許」即可,其他情況請重選資料夾。</div>
     </div>
     <div class="modal-foot">
       <button class="tbtn" id="projCancel">關閉</button>
@@ -787,6 +787,7 @@ const G = {
   selected:-1, curAsset:null,
   dirty:false, pendingProject:null,
   source:null,                         // 資產來源 {kind:'github'|'local', …} 供專案記錄與重開
+  dirHandle:null,                      // 目前本機資料夾 handle(供「記住資料夾」持久化)
   curProjId:null, curProjName:'',      // 目前開啟的已存專案
   spec:null, baseline:null, reviewMode:false,
 };
@@ -834,18 +835,19 @@ async function* walkHandle(handle, path=''){
 function entryFile(e){ return e._file ? Promise.resolve(e._file) : e._handle.getFile(); }
 
 async function pickDirectory(){
-  let entries = [], rootName = '';
+  let entries = [], rootName = '', handle = null;
   if (window.showDirectoryPicker){
     let dir;
     try { dir = await window.showDirectoryPicker({ mode:'read' }); }
     catch(err){ if (err && err.name === 'AbortError') return; throw err; }
-    rootName = dir.name;
+    handle = dir; rootName = dir.name;
     for await (const e of walkHandle(dir)) entries.push(e);
   } else {
     const picked = await pickViaInput();
     if (!picked) return;
     entries = picked.entries; rootName = picked.rootName;
   }
+  G.dirHandle = handle;                 // 供儲存專案時記住(input 退回模式為 null,無法記住)
   await ingest(entries, rootName, { kind:'local', rootName });
 }
 
@@ -2952,6 +2954,29 @@ function saveSpecFromModal(){
 function markDirty(){ G.dirty = true; updateDirty(); }
 function updateDirty(){ $('dirtyDot').classList.toggle('on', !!G.dirty); }
 
+/* ───────── IndexedDB:存放本機資料夾 handle(localStorage 存不了 handle)───────── */
+const IDB_NAME = 'fbxmgr', IDB_STORE = 'dirHandles';
+function idbOpen(){
+  return new Promise((res, rej)=>{
+    const r = indexedDB.open(IDB_NAME, 1);
+    r.onupgradeneeded = ()=>{ if (!r.result.objectStoreNames.contains(IDB_STORE)) r.result.createObjectStore(IDB_STORE); };
+    r.onsuccess = ()=>res(r.result);
+    r.onerror = ()=>rej(r.error);
+  });
+}
+function idbTx(key, val, mode){
+  return idbOpen().then(db => new Promise((res, rej)=>{
+    const tx = db.transaction(IDB_STORE, mode);
+    const st = tx.objectStore(IDB_STORE);
+    const rq = mode === 'readonly' ? st.get(key) : (val === undefined ? st.delete(key) : st.put(val, key));
+    rq.onsuccess = ()=>res(rq.result);
+    tx.onerror = ()=>rej(tx.error);
+  }));
+}
+const idbGet = k => idbTx(k, undefined, 'readonly');
+const idbPut = (k,v) => idbTx(k, v, 'readwrite');
+const idbDel = k => idbTx(k, undefined, 'readwrite');
+
 /* ───────── 專案:預設存瀏覽器,可另導出/匯入檔案 ───────── */
 const PROJ_KEY = 'fbxmgr.projects';
 function loadProjects(){ try { return JSON.parse(localStorage.getItem(PROJ_KEY)) || []; } catch(_){ return []; } }
@@ -2998,14 +3023,20 @@ function downloadJSON(obj, filename){
   setTimeout(()=>URL.revokeObjectURL(url), 1000);
 }
 // 儲存到瀏覽器(更新目前專案或新建)
-function saveProjectToBrowser(){
+async function saveProjectToBrowser(){
   if (!G.assets.length){ toast('尚未載入任何資產'); return; }
   const name = $('projName').value.trim() || G.rootName || '未命名專案';
   const data = collectProjectData();
   const list = loadProjects();
   let rec = G.curProjId ? list.find(p => p.id === G.curProjId) : null;
+  const id = rec ? rec.id : newId();
+  // 本機專案:把資料夾 handle 存進 IndexedDB,下次重開免重選(僅 Chromium + 非退回模式)
+  if (data.source && data.source.kind === 'local' && G.dirHandle){
+    const hk = 'h_' + id;
+    try { await idbPut(hk, G.dirHandle); data.source.handleKey = hk; } catch(_){}
+  }
   if (rec){ Object.assign(rec, data, { name }); }
-  else { rec = { id:newId(), name, ...data }; list.unshift(rec); G.curProjId = rec.id; }
+  else { rec = { id, name, ...data }; list.unshift(rec); G.curProjId = id; }
   G.curProjName = name;
   if (!saveProjects(list)) return;
   G.dirty = false; updateDirty();
@@ -3030,6 +3061,7 @@ function exportSavedProject(id){
 function deleteSavedProject(id){
   const list = loadProjects();
   const p = list.find(x => x.id === id); if (!p) return;
+  if (p.source && p.source.handleKey) idbDel(p.source.handleKey).catch(()=>{});   // 一併清掉記住的資料夾
   saveProjects(list.filter(x => x.id !== id));
   if (G.curProjId === id){ G.curProjId = null; G.curProjName = ''; }
   renderProjList();
@@ -3052,11 +3084,31 @@ async function openSavedProject(id){
   if (s && s.kind === 'github'){
     reopenGithubProject(s);
   } else if (s && s.kind === 'local'){
+    if (s.handleKey && await openLocalViaHandle(s)) return;    // 記住的資料夾 → 一鍵重新授權載入
     toast(`「${p.name}」為本機專案,請重新選擇「${s.rootName||'原始'}」資料夾以套用`, 6000);
     pickDirectory().catch(e=>toast('開啟資料夾失敗:'+e.message, 4000));
   } else {
     toast('此專案無來源資訊,請自行載入資料夾或從 GitHub 載入', 5000);
   }
+}
+// 用記住的資料夾 handle 重開:重新請求讀取權限(reload 後需再授權一次)後重掃
+async function openLocalViaHandle(s){
+  let handle;
+  try { handle = await idbGet(s.handleKey); } catch(_){}
+  if (!handle){ return false; }                    // 換瀏覽器/機器或已清除 → 退回重選
+  try{
+    let perm = await handle.queryPermission({ mode:'read' });
+    if (perm !== 'granted') perm = await handle.requestPermission({ mode:'read' });
+    if (perm !== 'granted'){ toast('未授權讀取資料夾'); return false; }
+  }catch(_){ return false; }
+  try{
+    toast(`正在重新讀取資料夾「${handle.name}」…`, 3000);
+    const entries = [];
+    for await (const e of walkHandle(handle)) entries.push(e);
+    G.dirHandle = handle;
+    await ingest(entries, handle.name, { kind:'local', rootName:handle.name, handleKey:s.handleKey });
+    return true;
+  }catch(_){ return false; }
 }
 // 依 GitHub 來源重開:預填 GitHub 視窗,有 token 直接自動抓,否則等使用者輸入 token
 function reopenGithubProject(s){
