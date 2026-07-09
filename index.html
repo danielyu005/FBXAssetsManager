@@ -685,8 +685,9 @@
       <label class="sp-row sp-col">素材來源
         <select class="sel" id="ghSource"></select></label>
       <div class="sp-row" style="justify-content:flex-start; gap:8px;">
-        <button class="tbtn sm" id="ghSaveBm" title="把目前的 repo / 分支 / 路徑存成書籤">＋ 儲存為書籤</button>
-        <button class="tbtn sm" id="ghDelBm" title="刪除目前選取的自訂書籤" disabled>🗑 刪除書籤</button>
+        <input class="num2" id="ghBmName" placeholder="書籤名稱(可留空自動命名)" style="flex:1; min-width:0;">
+        <button class="tbtn sm" id="ghSaveBm" title="把目前的 repo / 分支 / 路徑存成書籤">＋ 儲存</button>
+        <button class="tbtn sm" id="ghDelBm" title="刪除目前選取的自訂書籤" disabled>🗑 刪除</button>
       </div>
       <label class="sp-row sp-col">或手動輸入(owner/repo 或完整網址)
         <input class="num2 wide" id="ghRepo" placeholder="例:my-org/characters"></label>
@@ -990,6 +991,7 @@ function ghOnSourceChange(){                       // 選書籤 → 填入手動
     $('ghRepo').value = `${s.owner}/${s.repo}`;
     $('ghBranch').value = s.branch || '';
     $('ghPath').value = s.path || '';
+    $('ghBmName').value = s._user ? s.label : '';    // 自訂書籤帶出名稱以便改名重存
   }
   $('ghDelBm').disabled = !(s && s._user);
 }
@@ -999,17 +1001,17 @@ function currentSource(){
 }
 function ghSaveBookmark(){
   const rp = parseRepo($('ghRepo').value);
-  if (!rp){ toast('請先輸入 owner/repo 再存書籤'); return; }
+  if (!rp){ toast('請先在「手動輸入」填 owner/repo 再存書籤'); return; }
   const branch = $('ghBranch').value.trim();
   const path = $('ghPath').value.trim().replace(/\\/g,'/').replace(/^\/+|\/+$/g,'');
-  const suggested = rp.repo + (path ? '/' + path.split('/').pop() : '');
-  const label = (window.prompt('書籤名稱:', suggested) || '').trim();
-  if (!label) return;
+  let label = $('ghBmName').value.trim();
+  if (!label) label = rp.repo + (path ? '/' + path.split('/').pop() : '');   // 未填 → 自動命名
   const nb = { label, owner:rp.owner, repo:rp.repo, branch, path };
   const bms = loadBookmarks();
   const idx = bms.findIndex(b => bmKey(b) === bmKey(nb));   // 同 repo/分支/路徑 → 更新,否則新增
   if (idx >= 0) bms[idx] = nb; else bms.push(nb);
   if (!saveBookmarks(bms)) return;
+  $('ghBmName').value = '';
   ghBuildSources();
   ghRenderSourceSelect(ghAllSources.findIndex(s => s._user && bmKey(s) === bmKey(nb)));
   toast('已儲存書籤:' + label);
@@ -1018,14 +1020,15 @@ function ghDeleteBookmark(){
   const v = $('ghSource').value;
   const s = (v !== '-1') ? ghAllSources[+v] : null;
   if (!s || !s._user){ toast('內建書籤無法刪除'); return; }
-  if (!window.confirm(`刪除書籤「${s.label}」?`)) return;
   const bms = loadBookmarks().filter(b => bmKey(b) !== bmKey(s));
   if (!saveBookmarks(bms)) return;
+  $('ghBmName').value = '';
   ghBuildSources();
   ghRenderSourceSelect(null);
-  toast('已刪除書籤');
+  toast('已刪除書籤:' + s.label);
 }
 function openGhModal(){
+  $('ghBmName').value = '';
   ghBuildSources();
   ghRenderSourceSelect(null);
   $('ghAssets').innerHTML = '<div class="sp-hint">先讀取檔案清單,再勾選要載入的 FBX。</div>';
