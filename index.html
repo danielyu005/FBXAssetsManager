@@ -160,6 +160,15 @@
   .num2{ width:120px; background:var(--panel-2); border:1px solid var(--line); color:var(--text); border-radius:5px; padding:5px 8px; font-family:var(--mono); font-size:12px; }
   .num2.wide{ width:100%; }
   .num2:focus{ outline:none; border-color:var(--accent); }
+  #ghModal{ position:fixed; inset:0; background:rgba(0,0,0,.55); display:none; align-items:center; justify-content:center; z-index:50; }
+  #ghModal.open{ display:flex; }
+  .gh-card{ width:540px; }
+  .gh-assets{ max-height:240px; overflow:auto; border:1px solid var(--line); border-radius:8px; padding:6px; background:var(--panel-2); display:flex; flex-direction:column; gap:2px; }
+  .gh-arow{ display:flex; align-items:center; gap:8px; padding:5px 6px; border-radius:5px; font-size:12.5px; cursor:pointer; }
+  .gh-arow:hover{ background:var(--panel); }
+  .gh-arow .an{ flex:1; font-family:var(--mono); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .gh-arow .asz{ color:var(--muted); font-size:11.5px; font-family:var(--mono); }
+  .gh-status{ font-size:12px; color:var(--muted); min-height:16px; font-family:var(--mono); word-break:break-all; }
   .sp-hint{ font-size:11px; color:var(--dim); line-height:1.6; }
   #empty{
     position:absolute; inset:0; display:flex; flex-direction:column;
@@ -443,6 +452,7 @@
 <div id="top">
   <div class="brand"><span class="dot"></span>FBX 資產管理器</div>
   <button class="tbtn primary" id="pickBtn">選擇資料夾</button>
+  <button class="tbtn" id="ghBtn" title="從 GitHub Releases 載入素材">GitHub</button>
   <button class="tbtn" id="rescanBtn" disabled>重新掃描</button>
   <div class="spacer"></div>
   <button class="tbtn" id="saveProjBtn" disabled>儲存專案<span id="dirtyDot" class="dirty-dot">●</span></button>
@@ -665,6 +675,38 @@
   </div>
 </div>
 
+<div id="ghModal">
+  <div class="modal-card gh-card">
+    <div class="modal-head">
+      <span>從 GitHub 載入素材</span>
+      <button class="ibtn" id="ghClose">✕</button>
+    </div>
+    <div class="modal-body">
+      <label class="sp-row sp-col">素材來源
+        <select class="sel" id="ghSource"></select></label>
+      <label class="sp-row sp-col">或手動輸入(owner/repo 或完整網址)
+        <input class="num2 wide" id="ghRepo" placeholder="例:my-org/characters"></label>
+      <div class="sp-grid">
+        <label class="sp-row sp-col">分支
+          <input class="num2 wide" id="ghBranch" placeholder="預設分支"></label>
+        <label class="sp-row sp-col">資料夾路徑
+          <input class="num2 wide" id="ghPath" placeholder="留空 = 整個 repo"></label>
+      </div>
+      <label class="sp-row sp-col">存取權杖 Token(選填,私有庫必填 / 提高速率上限,僅存於本機記憶體)
+        <input class="num2 wide" id="ghToken" type="password" placeholder="ghp_…"></label>
+      <div class="sp-row"><button class="tbtn" id="ghFetch">讀取檔案清單</button>
+        <span class="sp-hint" id="ghHint" style="flex:1"></span></div>
+      <div class="gh-assets" id="ghAssets"><div class="sp-hint">先讀取檔案清單,再勾選要載入的 FBX。</div></div>
+      <div class="sp-hint">公開庫下載走 jsDelivr CDN,大檔自動回退 raw;同一路徑下的貼圖會一併載入並依檔名就近比對。單檔上限約 100MB。</div>
+      <div class="gh-status" id="ghStatus"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="tbtn" id="ghCancel">取消</button>
+      <button class="tbtn primary" id="ghLoad" disabled>載入選取</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <script type="importmap">
@@ -710,6 +752,17 @@ const DEFAULT_SPEC = {
   requireUniqueNames:true,      // Model 節點命名唯一(重複會導致 three.js 動畫綁定錯亂)
   trisWarnPct:30,          // 與基準相比三角面增減超過此 % 給警告
 };
+
+/* ───────── GitHub 素材來源(書籤)─────────
+   在此登錄常用的素材庫,使用者即可從下拉選單直接挑選。
+   branch / path 為選填(留空 = 預設分支 / 整個 repo)。
+   repo 需為公開,或於工具內填入 Token 以存取私有庫。 */
+const GH_SOURCES = [
+  { label:'鬼獵魚 角色', owner:'IGS-ARCADE-DIVISION-RD4-GAME',
+    repo:'Fish_Client_GhostHunters', branch:'develop', path:'assets/Game/Model/Fish' },
+  // 追加更多書籤(branch / path 選填,留空 = 預設分支 / 整個 repo):
+  // { label:'鬼獵魚 全模型', owner:'IGS-ARCADE-DIVISION-RD4-GAME', repo:'Fish_Client_GhostHunters', branch:'develop', path:'assets/Game/Model' },
+];
 
 /* ───────── 共用工具 ───────── */
 let toastTimer;
@@ -851,6 +904,170 @@ function mapLimit(arr, limit, fn){
   let i = 0;
   const run = async()=>{ while (i < arr.length){ const k = i++; await fn(arr[k], k); } };
   return Promise.all(Array.from({length:Math.min(limit, arr.length)}, run));
+}
+
+/* ───────── GitHub 載入(讀取 repo 檔案)─────────
+   Release 附件無法從純前端下載(objects.githubusercontent.com 不發 CORS 標頭),
+   故改走 Git Trees API 列檔 + raw.githubusercontent.com 下載(公開庫),
+   私有庫則帶 Token 走 Contents API raw media type。單檔上限約 100MB。 */
+let GH_TOKEN = '';                 // 僅存於記憶體,不落地
+let ghState = null;                // { rp, branch, path, fbx:[], tex:[] }
+
+function parseRepo(s){
+  s = (s || '').trim();
+  if (!s) return null;
+  const m = s.match(/github\.com\/([^\/]+)\/([^\/#?]+)/i);      // 完整網址
+  if (m) return { owner:m[1], repo:m[2].replace(/\.git$/i,'') };
+  const p = s.replace(/^\/+|\/+$/g,'').split('/').filter(Boolean); // owner/repo
+  if (p.length >= 2) return { owner:p[0], repo:p[1].replace(/\.git$/i,'') };
+  return null;
+}
+async function ghApi(path, accept){
+  const h = { 'Accept': accept || 'application/vnd.github+json' };
+  if (GH_TOKEN) h['Authorization'] = 'Bearer ' + GH_TOKEN;
+  const r = await fetch('https://api.github.com' + path, { headers:h });
+  if (!r.ok){
+    const hint = r.status === 403 ? '(API 速率限制或無權限,請填入 Token 後重試)'
+               : r.status === 404 ? '(找不到,確認 repo / 分支 / 路徑與存取權限)' : '';
+    throw new Error(`GitHub API ${r.status} ${hint}`);
+  }
+  return r;
+}
+const encPath = p => p.split('/').map(encodeURIComponent).join('/');   // 保留斜線,逐段編碼
+
+async function fetchBufTry(url){
+  const r = await fetch(url);
+  if (!r.ok){ const e = new Error('HTTP ' + r.status); e.status = r.status; throw e; }
+  return r.arrayBuffer();
+}
+// 下載單一 repo 檔案為 ArrayBuffer:
+//   私有(有 token)→ Contents API raw media;
+//   公開 → jsDelivr CDN 優先(額度大、少 429),失敗再回退 raw(支援至 ~100MB)
+async function ghDownload(rp, branch, path){
+  if (GH_TOKEN){
+    const r = await ghApi(`/repos/${rp.owner}/${rp.repo}/contents/${encPath(path)}?ref=${encodeURIComponent(branch)}`,
+                          'application/vnd.github.raw');
+    return r.arrayBuffer();
+  }
+  const ep = encPath(path), br = encodeURIComponent(branch);
+  try { return await fetchBufTry(`https://cdn.jsdelivr.net/gh/${rp.owner}/${rp.repo}@${br}/${ep}`); }
+  catch(_) { return await fetchBufTry(`https://raw.githubusercontent.com/${rp.owner}/${rp.repo}/${br}/${ep}`); }
+}
+
+function currentSource(){
+  const sel = $('ghSource'), v = sel.value;
+  if (v !== '-1' && GH_SOURCES[+v]){
+    const s = GH_SOURCES[+v];
+    return { rp:{ owner:s.owner, repo:s.repo }, branch:s.branch || '', path:s.path || '' };
+  }
+  return { rp:parseRepo($('ghRepo').value), branch:$('ghBranch').value.trim(), path:$('ghPath').value.trim() };
+}
+function openGhModal(){
+  const sel = $('ghSource');
+  const opts = GH_SOURCES.map((s,i)=>`<option value="${i}">${esc(s.label)}(${esc(s.owner)}/${esc(s.repo)})</option>`);
+  opts.push('<option value="-1">— 手動輸入 —</option>');
+  sel.innerHTML = opts.join('');
+  sel.value = GH_SOURCES.length ? '0' : '-1';
+  $('ghAssets').innerHTML = '<div class="sp-hint">先讀取檔案清單,再勾選要載入的 FBX。</div>';
+  $('ghHint').textContent = ''; $('ghStatus').textContent = ''; $('ghLoad').disabled = true; ghState = null;
+  $('ghModal').classList.add('open');
+}
+function closeGhModal(){ $('ghModal').classList.remove('open'); }
+
+async function ghFetchTree(){
+  GH_TOKEN = $('ghToken').value.trim();
+  const src = currentSource();
+  if (!src.rp){ toast('請選擇來源或輸入 owner/repo'); return; }
+  const { owner, repo } = src.rp;
+  const prefix = src.path.replace(/\\/g,'/').replace(/^\/+|\/+$/g,'');   // 反斜線→正斜線,去頭尾斜線
+  const setErr = m => { $('ghStatus').textContent = m; toast(m, 5000); };
+  $('ghStatus').textContent = `讀取 ${owner}/${repo} 檔案清單…`;
+  try{
+    // 步驟 1:確認 repo 可存取並取得預設分支(把「repo/Token」問題與「分支」問題分開報)
+    let info;
+    try { info = await (await ghApi(`/repos/${owner}/${repo}`)).json(); }
+    catch(e){
+      if (/40[34]/.test(e.message)){
+        if (!GH_TOKEN)
+          return setErr(`找不到 ${owner}/${repo}。若為私有庫,請在下方填入 Token。`);
+        let tokenOk = false;                              // Token 有效嗎?連 /user 驗證
+        try { await ghApi('/user'); tokenOk = true; } catch(_){}
+        if (!tokenOk)
+          return setErr('Token 無效或已過期(無法通過 /user 驗證)。請重新產生一組 Token。');
+        return setErr(`Token 有效,但看不到 ${owner}/${repo}。請逐項確認:①Fine-grained Token 要在「Repository access」明確勾選此庫;②到 Token 設定頁對此組織按「Authorize/Configure SSO」;③組織政策是否封鎖此類 Token;④owner/repo 名稱是否正確。`);
+      }
+      return setErr(e.message);
+    }
+    // 步驟 2:讀取分支檔案樹
+    const branch = src.branch || info.default_branch || 'main';
+    let tree;
+    try { tree = await (await ghApi(`/repos/${owner}/${repo}/git/trees/${encodeURIComponent(branch)}?recursive=1`)).json(); }
+    catch(e){
+      if (/404/.test(e.message))
+        return setErr(`分支「${branch}」不存在。此庫預設分支為「${info.default_branch}」,請修正「分支」欄位或留空。`);
+      return setErr(e.message);
+    }
+    const inScope = p => !prefix || p === prefix || p.startsWith(prefix + '/');
+    const files = (tree.tree || []).filter(n => n.type === 'blob' && inScope(n.path));
+    const fbx = files.filter(n => /\.fbx$/i.test(n.path));
+    const tex = files.filter(n => SUPPORTED_TEX.test(n.path));
+    ghState = { rp:src.rp, branch, path:prefix, fbx, tex };
+    renderGhFiles();
+    $('ghHint').textContent = `分支 ${branch}${prefix?' · '+prefix:''} · 另含 ${tex.length} 張貼圖將一併載入`;
+    if (tree.truncated)
+      $('ghStatus').textContent = `⚠ 檔案樹過大被截斷,清單可能不完整,建議在「資料夾路徑」縮小範圍。目前找到 ${fbx.length} 個 FBX。`;
+    else if (!fbx.length && prefix)
+      $('ghStatus').textContent = `路徑「${prefix}」下沒有 FBX。確認路徑是否相對於 repo 根目錄(勿含 repo 名稱),或留空瀏覽整庫。`;
+    else
+      $('ghStatus').textContent = `找到 ${fbx.length} 個 FBX、${tex.length} 張貼圖。`;
+  }catch(e){ setErr(e.message); }
+}
+function renderGhFiles(){
+  const box = $('ghAssets');
+  if (!ghState || !ghState.fbx.length){
+    box.innerHTML = '<div class="sp-hint">此範圍內沒有 FBX 檔。</div>'; $('ghLoad').disabled = true; return;
+  }
+  box.innerHTML = ghState.fbx.map((n,i)=>
+    `<label class="gh-arow"><input type="checkbox" data-fi="${i}" checked>
+      <span class="an">${esc(n.path)}</span><span class="asz">${fmtBytes(n.size)}</span></label>`).join('');
+  syncGhLoad();
+}
+function syncGhLoad(){
+  const n = $('ghAssets').querySelectorAll('input[type=checkbox]:checked').length;
+  $('ghLoad').disabled = n === 0;
+}
+async function ghLoadSelected(){
+  if (!ghState) return;
+  const { rp, branch } = ghState;
+  const chosenFbx = [...$('ghAssets').querySelectorAll('input[type=checkbox]:checked')]
+    .map(c => ghState.fbx[+c.dataset.fi]);
+  if (!chosenFbx.length) return;
+  $('ghLoad').disabled = true;
+  const wanted = [...chosenFbx, ...ghState.tex];        // 貼圖全數一併載入,供檔名就近比對
+  const entries = new Array(wanted.length);
+  let done = 0, failed = 0;
+  try{
+    await mapLimit(wanted, 6, async (n, k)=>{
+      try{
+        const buf = await ghDownload(rp, branch, n.path);
+        entries[k] = { name:basename(n.path), path:n.path, _file:new File([buf], basename(n.path)) };
+      }catch(_){ failed++; }
+      done++;
+      $('ghStatus').textContent = `下載中 ${done}/${wanted.length}…${failed?` (${failed} 個失敗)`:''}`;
+    });
+    const ok = entries.filter(Boolean);
+    if (!ok.some(e => /\.fbx$/i.test(e.name))){
+      $('ghStatus').textContent = 'FBX 下載失敗,請確認分支 / 權限 / 檔案大小(>100MB 無法載入)。';
+      $('ghLoad').disabled = false; return;
+    }
+    closeGhModal();
+    await ingest(ok, `${rp.owner}/${rp.repo}@${branch}`);
+    if (failed) toast(`完成,但有 ${failed} 個檔案下載失敗`, 4000);
+  }catch(e){
+    $('ghStatus').textContent = '失敗:' + e.message;
+    toast('GitHub 載入失敗:' + e.message, 4500);
+    $('ghLoad').disabled = false;
+  }
 }
 
 /* ───────── 貼圖重導 LoadingManager ───────── */
@@ -2351,6 +2568,13 @@ $('specClose').addEventListener('click', closeSpecModal);
 $('specCancel').addEventListener('click', closeSpecModal);
 $('specSave').addEventListener('click', saveSpecFromModal);
 $('specModal').addEventListener('click', e=>{ if (e.target === $('specModal')) closeSpecModal(); });
+$('ghBtn').addEventListener('click', openGhModal);
+$('ghClose').addEventListener('click', closeGhModal);
+$('ghCancel').addEventListener('click', closeGhModal);
+$('ghModal').addEventListener('click', e=>{ if (e.target === $('ghModal')) closeGhModal(); });
+$('ghFetch').addEventListener('click', ghFetchTree);
+$('ghAssets').addEventListener('change', syncGhLoad);
+$('ghLoad').addEventListener('click', ghLoadSelected);
 function debounce(fn, ms){ let t; return (...a)=>{ clearTimeout(t); t = setTimeout(()=>fn(...a), ms); }; }
 
 /* ───────── 驗收 / 版本比對 ───────── */
