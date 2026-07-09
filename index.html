@@ -740,6 +740,7 @@
       <div class="sp-hint" id="projSaveInfo"></div>
       <div class="sec-title" style="margin-top:6px;">已儲存的專案
         <button class="tbtn sm" id="projImport" style="float:right;">匯入檔案…</button>
+        <button class="tbtn sm" id="projBackup" style="float:right; margin-right:6px;">備份清單</button>
       </div>
       <div class="proj-list" id="projList"></div>
       <div class="sp-hint">專案只存來源與設定(覆寫/備註/驗收),不含 FBX 本身。開啟時依來源重新載入:GitHub 自動重抓(私有庫需再輸入 Token);本機資料夾在 Chrome/Edge 會記住,開啟時按一次「允許」即可,其他情況請重選資料夾。</div>
@@ -3132,17 +3133,69 @@ projInput.addEventListener('change', async ()=>{
   if (file) importProjectFromFile(file);
 });
 async function importProjectFromFile(file){
-  let proj;
-  try { proj = JSON.parse(await file.text()); }
-  catch(_){ toast('專案檔解析失敗', 3500); return; }
-  if (!proj || proj.app !== 'fbx-asset-manager'){ toast('這不是本工具的專案檔', 3500); return; }
+  let obj;
+  try { obj = JSON.parse(await file.text()); }
+  catch(_){ toast('檔案解析失敗', 3500); return; }
   const list = loadProjects();
-  const rec = { id:newId(), name: proj.name || proj.rootName || '匯入的專案', ...proj, id:undefined };
-  rec.id = newId();
-  list.unshift(rec);
+  const clean = pr => { const r = { ...pr, id:newId() }; if (r.source) delete r.source.handleKey; return r; };  // 匯入到本機:handle 不跨機
+  if (obj && obj.app === 'fbx-asset-manager-backup' && Array.isArray(obj.projects)){
+    let n = 0;
+    obj.projects.forEach(pr=>{ if (pr && typeof pr === 'object'){ list.unshift(clean(pr)); n++; } });
+    if (!saveProjects(list)) return;
+    renderProjList();
+    toast(`已從備份匯入 ${n} 個專案`);
+  } else if (obj && obj.app === 'fbx-asset-manager'){
+    const rec = clean(obj); rec.name = obj.name || obj.rootName || '匯入的專案';
+    list.unshift(rec);
+    if (!saveProjects(list)) return;
+    renderProjList();
+    toast('已匯入專案:' + rec.name + '(可從清單開啟)');
+  } else {
+    toast('這不是本工具的專案或備份檔', 3500);
+  }
+}
+function exportAllProjects(){
+  const list = loadProjects();
+  if (!list.length){ toast('沒有可備份的專案'); return; }
+  downloadJSON({ app:'fbx-asset-manager-backup', version:1, savedAt:new Date().toISOString(), projects:list },
+    `fbx專案備份_${new Date().toISOString().slice(0,10)}.json`);
+  toast(`已備份 ${list.length} 個專案`);
+}
+function duplicateProject(id){
+  const list = loadProjects();
+  const i = list.findIndex(x => x.id === id); if (i < 0) return;
+  const copy = JSON.parse(JSON.stringify(list[i]));
+  copy.id = newId(); copy.name = (list[i].name || '專案') + ' (複本)';
+  copy.savedAt = new Date().toISOString();
+  if (copy.source) delete copy.source.handleKey;    // 副本不共用資料夾授權(避免刪一個影響另一個)
+  list.splice(i + 1, 0, copy);
   if (!saveProjects(list)) return;
   renderProjList();
-  toast('已匯入專案:' + rec.name + '(可從清單開啟)');
+  toast('已複製:' + copy.name);
+}
+function startRenameProject(id, rowEl){
+  const nameEl = rowEl && rowEl.querySelector('.proj-name'); if (!nameEl) return;
+  const cur = (loadProjects().find(p => p.id === id) || {}).name || '';
+  const inp = document.createElement('input');
+  inp.className = 'num2'; inp.value = cur; inp.style.width = '100%';
+  let done = false;
+  const commit = (save)=>{
+    if (done) return; done = true;
+    if (save){
+      const nv = inp.value.trim();
+      if (nv){
+        const list = loadProjects(); const p = list.find(x => x.id === id);
+        if (p){ p.name = nv; saveProjects(list); if (G.curProjId === id) G.curProjName = nv; }
+      }
+    }
+    renderProjList();
+  };
+  inp.addEventListener('keydown', e=>{
+    if (e.key === 'Enter'){ e.preventDefault(); commit(true); }
+    else if (e.key === 'Escape'){ e.preventDefault(); commit(false); }
+  });
+  inp.addEventListener('blur', ()=> commit(true));
+  nameEl.replaceWith(inp); inp.focus(); inp.select();
 }
 function openProjModal(){
   const has = G.assets.length > 0;
@@ -3171,7 +3224,9 @@ function renderProjList(){
       </div>
       <div class="proj-btns">
         <button class="tbtn sm" data-act="open" data-id="${p.id}">開啟</button>
-        <button class="tbtn sm" data-act="export" data-id="${p.id}" title="導出成檔案">導出</button>
+        <button class="tbtn sm" data-act="rename" data-id="${p.id}" title="改名">✎</button>
+        <button class="tbtn sm" data-act="dup" data-id="${p.id}" title="複製專案">⧉</button>
+        <button class="tbtn sm" data-act="export" data-id="${p.id}" title="導出成檔案">⬇</button>
         <button class="tbtn sm" data-act="del" data-id="${p.id}" title="刪除此專案">🗑</button>
       </div>
     </div>`).join('');
@@ -3205,11 +3260,14 @@ $('projExport').addEventListener('click', exportProjectFile);
 $('projImport').addEventListener('click', ()=>projInput.click());
 $('projList').addEventListener('click', e=>{
   const btn = e.target.closest('button[data-act]'); if (!btn) return;
-  const id = btn.dataset.id;
-  if (btn.dataset.act === 'open')   openSavedProject(id);
-  else if (btn.dataset.act === 'export') exportSavedProject(id);
-  else if (btn.dataset.act === 'del')    deleteSavedProject(id);
+  const id = btn.dataset.id, act = btn.dataset.act;
+  if (act === 'open')        openSavedProject(id);
+  else if (act === 'rename') startRenameProject(id, btn.closest('.proj-row'));
+  else if (act === 'dup')    duplicateProject(id);
+  else if (act === 'export') exportSavedProject(id);
+  else if (act === 'del')    deleteSavedProject(id);
 });
+$('projBackup').addEventListener('click', exportAllProjects);
 window.addEventListener('keydown', e=>{
   if ((e.ctrlKey || e.metaKey) && e.key === 's'){    // Ctrl+S 快速存到瀏覽器
     e.preventDefault();
