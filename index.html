@@ -2449,12 +2449,12 @@ function renderTexPalette(a){
     const preview = (ext==='tga'||ext==='dds'||ext==='bmp')
       ? `<span class="tp-ext">${esc(ext.toUpperCase())}</span>`
       : `<img src="${im.url}" loading="lazy" alt="">`;
-    return `<div class="texpal-item" draggable="true" data-url="${im.url}" data-name="${esc(im.name)}" data-ext="${ext}" title="${esc(im.name)}\n拖拉到右側貼圖槽以指派">
+    return `<div class="texpal-item" draggable="true" data-url="${im.url}" data-name="${esc(im.name)}" data-ext="${ext}" data-path="${esc(im.path)}" title="${esc(im.name)}\n拖拉到右側貼圖槽以指派">
       <div class="tp-thumb">${preview}</div><span class="tp-name">${esc(im.name)}</span></div>`;
   }).join('');
   wrap.querySelectorAll('.texpal-item').forEach(el=>{
     el.addEventListener('dragstart', e=>{
-      draggedTex = { url:el.dataset.url, name:el.dataset.name, ext:el.dataset.ext };
+      draggedTex = { url:el.dataset.url, name:el.dataset.name, ext:el.dataset.ext, path:el.dataset.path };
       el.classList.add('dragging');
       try{ e.dataTransfer.setData('text/plain', el.dataset.name); e.dataTransfer.effectAllowed='copy'; }catch(_){}
     });
@@ -2468,13 +2468,12 @@ async function urlToDataURL(url){
 async function applyTexToSlot(mi, slot, cs, tex){
   const mat = pvMaterials[mi]; if (!mat) return;
   try{
-    const data = await urlToDataURL(tex.url);
-    const t = await makeTextureFromData(data, tex.ext, cs);
+    const t = await makeTextureFromData(tex.url, tex.ext, cs);   // 直接用資料夾內的 blob URL 顯示
     if (mat[slot] && mat[slot].isTexture) mat[slot].dispose();
     mat[slot] = t;
     if (slot === 'alphaMap'){ mat.transparent = true; }
     mat.needsUpdate = true;
-    recordOverride(mi, slot, { name:tex.name, cs, ext:tex.ext, data });
+    recordOverride(mi, slot, { name:tex.name, cs, ext:tex.ext, ref:tex.path });   // 只存路徑引用,不內嵌貼圖
     recountTextures();
     renderMaterialsUI(G.curAsset ? G.curAsset.missing : []);
     markDirty();
@@ -2502,6 +2501,17 @@ function recordOverride(mi, slot, entry){
   a.overrides[mi] = a.overrides[mi] || {};
   a.overrides[mi][slot] = entry;
 }
+/* 由儲存的路徑引用,解析回目前資料夾中對應貼圖的 blob URL */
+function resolveOverrideRef(ref){
+  if (!ref) return null;
+  const r = String(ref).replace(/\\/g,'/').toLowerCase();
+  const hit = (G.imageList||[]).find(im => im.path === r);
+  if (hit) return hit.url;
+  const byTail = G.fileIndex.byTail.get(r.split('/').slice(-2).join('/'));   // 退而求其次:末兩段路徑
+  if (byTail) return byTail;
+  const cand = G.fileIndex.byName.get(r.split('/').pop());                    // 再退:同檔名
+  return (cand && cand.length) ? cand[0].url : null;
+}
 /* 將已記錄的覆寫套回剛載入的材質（切換模型 / 載入專案後還原） */
 async function applyOverrides(mats, overrides){
   if (!overrides) return;
@@ -2517,9 +2527,10 @@ async function applyOverrides(mats, overrides){
         mat.needsUpdate = true;
         continue;
       }
-      if (!(slot in mat) || !e || !e.data) continue;
+      const src = e && (e.ref ? resolveOverrideRef(e.ref) : e.data);   // ref=資料夾路徑;data=內嵌(外部上傳/舊專案)
+      if (!(slot in mat) || !src) continue;
       try{
-        const tex = await makeTextureFromData(e.data, e.ext, e.cs);
+        const tex = await makeTextureFromData(src, e.ext, e.cs);
         if (mat[slot] && mat[slot].isTexture) mat[slot].dispose();
         mat[slot] = tex;
         if (slot === 'alphaMap') mat.transparent = true;
