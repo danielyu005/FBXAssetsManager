@@ -2780,9 +2780,29 @@ window.addEventListener('keydown', e=>{
 /* ───────── 事件接線 ───────── */
 $('pickBtn').addEventListener('click', ()=>pickDirectory().catch(e=>toast('開啟資料夾失敗:'+e.message, 4000)));
 $('pickBtn2').addEventListener('click', ()=>pickDirectory().catch(e=>toast('開啟資料夾失敗:'+e.message, 4000)));
-$('rescanBtn').addEventListener('click', ()=>{
-  // 重新掃描：用既有 entries 重建（FSA handle 才能真正重讀；input 模式提示重選）
-  if (G.entries.length){ ingest(G.entries, G.rootName); }
+$('rescanBtn').addEventListener('click', async ()=>{
+  if (!G.entries.length && !G.dirHandle) return;
+  const snapshot = collectProjectData().assets;          // 擷取目前狀態(覆寫/備註/驗收/軸向)
+  const source = G.source;
+  const adopt = G.curProjId ? { id:G.curProjId, name:G.curProjName } : null;
+  // 本機資料夾:用 handle 真正重讀磁碟(可抓到新增/更動的檔);其他來源沿用既有 entries
+  let entries = G.entries, rootName = G.rootName;
+  if (G.dirHandle && typeof G.dirHandle.values === 'function'){
+    try{
+      let perm = await G.dirHandle.queryPermission({ mode:'read' });
+      if (perm !== 'granted') perm = await G.dirHandle.requestPermission({ mode:'read' });
+      if (perm === 'granted'){
+        const fresh = [];
+        for await (const e of walkHandle(G.dirHandle)) fresh.push(e);
+        entries = fresh; rootName = G.dirHandle.name;
+      }
+    }catch(_){}
+  }
+  if (adopt) await saveProjectToBrowser();               // 有關聯專案 → 先自動存進瀏覽器
+  G.pendingProject = snapshot;                            // 讓 ingest 於重掃後把狀態套回
+  if (adopt) projToAdopt = adopt;                         // 保留專案關聯(否則 ingest 會清成 null)
+  await ingest(entries, rootName, source);
+  toast(adopt ? '已重新掃描,並自動存檔+還原狀態' : '已重新掃描,並還原目前狀態');
 });
 $('search').addEventListener('input', debounce(renderGrid, 160));
 $('sortSel').addEventListener('change', renderGrid);
@@ -3160,7 +3180,7 @@ function downloadJSON(obj, filename){
 // 儲存到瀏覽器(更新目前專案或新建)
 async function saveProjectToBrowser(){
   if (!G.assets.length){ toast('尚未載入任何資產'); return; }
-  const name = $('projName').value.trim() || G.rootName || '未命名專案';
+  const name = $('projName').value.trim() || G.curProjName || G.rootName || '未命名專案';
   const data = collectProjectData();
   const list = loadProjects();
   let rec = G.curProjId ? list.find(p => p.id === G.curProjId) : null;
