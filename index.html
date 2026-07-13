@@ -3085,12 +3085,26 @@ const idbGet = k => idbTx(k, undefined, 'readonly');
 const idbPut = (k,v) => idbTx(k, v, 'readwrite');
 const idbDel = k => idbTx(k, undefined, 'readwrite');
 
-/* ───────── 專案:預設存瀏覽器,可另導出/匯入檔案 ───────── */
-const PROJ_KEY = 'fbxmgr.projects';
-function loadProjects(){ try { return JSON.parse(localStorage.getItem(PROJ_KEY)) || []; } catch(_){ return []; } }
+/* ───────── 專案:存 IndexedDB(容量遠大於 localStorage,支援內嵌覆寫貼圖)─────────
+   以記憶體快取維持同步的 load/save 介面;實際讀寫走 IndexedDB。
+   啟動時自動把舊版 localStorage 的專案搬遷過來。 */
+const PROJ_KEY = 'fbxmgr.projects';      // 舊版 localStorage 鍵(僅用於搬遷)
+const IDB_PROJ_KEY = 'projects';         // IndexedDB 內的鍵
+let projCache = [];
+const projReady = (async ()=>{
+  let fromIdb = null;
+  try { fromIdb = await idbGet(IDB_PROJ_KEY); } catch(_){}
+  if (Array.isArray(fromIdb)){ projCache = fromIdb; return; }
+  try { const ls = JSON.parse(localStorage.getItem(PROJ_KEY) || '[]'); if (Array.isArray(ls)) projCache = ls; } catch(_){}
+  if (projCache.length){                 // 從 localStorage 搬遷 → IndexedDB,成功後清掉舊資料
+    try { await idbPut(IDB_PROJ_KEY, projCache); localStorage.removeItem(PROJ_KEY); } catch(_){}
+  }
+})();
+function loadProjects(){ return projCache; }
 function saveProjects(list){
-  try { localStorage.setItem(PROJ_KEY, JSON.stringify(list)); return true; }
-  catch(_){ toast('儲存失敗:瀏覽器空間可能已滿(含手動覆寫貼圖的專案較大)', 5000); return false; }
+  projCache = list;
+  idbPut(IDB_PROJ_KEY, list).catch(()=> toast('儲存失敗:IndexedDB 寫入錯誤', 4000));
+  return true;                           // 樂觀回報(IDB 容量充足,寫入幾乎不會因空間失敗)
 }
 function newId(){ return 'p_' + Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
 function srcDesc(s){                                  // 來源可讀字串
@@ -3383,8 +3397,8 @@ window.addEventListener('keydown', e=>{
     if (G.assets.length) saveProjectToBrowser();
   }
 });
-// 開啟 App 時,若有已存專案就跳出清單
-if (loadProjects().length) openProjModal();
+// 開啟 App 時,待專案自 IndexedDB 載入後,若有已存專案就跳出清單
+projReady.then(()=>{ if (loadProjects().length) openProjModal(); });
 
 window.addEventListener('beforeunload', e=>{
   G.blobURLs.forEach(u=>URL.revokeObjectURL(u));
