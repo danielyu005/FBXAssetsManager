@@ -88,7 +88,10 @@
   .cat-caret{ color:var(--muted); font-size:10px; width:12px; transition:transform .12s; }
   .cat-group.collapsed .cat-caret{ transform:rotate(-90deg); }
   .cat-name{ font-weight:600; font-size:13px; color:var(--text); }
-  .cat-count{ color:var(--muted); font-size:11px; font-family:var(--mono); }
+  .cat-count{ color:var(--muted); font-size:11px; font-family:var(--mono); background:var(--panel); border:1px solid var(--line); border-radius:9px; padding:1px 8px; }
+  .cat-rev{ font-family:var(--mono); font-size:11px; color:var(--dim); display:inline-flex; gap:3px; align-items:center; }
+  .cat-rev .ok{ color:var(--good); font-weight:600; }
+  .cat-rev .bad{ color:var(--bad); font-weight:600; }
   .cat-ren{ margin-left:auto; background:none; border:1px solid var(--line); color:var(--muted);
     border-radius:5px; width:24px; height:22px; cursor:pointer; font-size:11px; }
   .cat-ren:hover{ border-color:var(--accent); color:var(--accent); }
@@ -1672,9 +1675,15 @@ function renderGrid(){
     g.dataset.cat = name;
     const header = document.createElement('div');
     header.className = 'cat-header'; header.dataset.cat = name;
+    const arr = groups.get(name);
+    let cnt = `<span class="cat-count">${arr.length}</span>`;
+    if (G.reviewMode){                                   // 加上此分類的達標(綠)/未達標(紅)
+      let p = 0, f = 0;
+      arr.forEach(a=>{ if (a.eval){ a.eval.pass ? p++ : f++; } });
+      cnt += `<span class="cat-rev" title="達標 ${p} / 未達標 ${f}"><span class="ok">${p}</span>/<span class="bad">${f}</span></span>`;
+    }
     header.innerHTML = `<span class="cat-caret">▾</span><span class="cat-name">${esc(name)}</span>`
-      + `<span class="cat-count">${groups.get(name).length}</span>`
-      + `<button class="cat-ren" title="重新命名此分類">✎</button>`;
+      + cnt + `<button class="cat-ren" title="重新命名此分類">✎</button>`;
     const cards = document.createElement('div'); cards.className = 'cat-cards';
     groups.get(name).forEach(a=> cards.appendChild(makeCard(a)));
     g.appendChild(header); g.appendChild(cards);
@@ -3058,6 +3067,20 @@ function updateReviewSummary(){
   if (pending) html += `<span class="rp muted">未分析 ${pending}</span>`;
   if (!G.baseline && !getSpec().enabled) html += `<span class="rp muted">尚未設定規格或基準</span>`;
   bar.innerHTML = html;
+  updateCatCounts();
+}
+// 即時更新各分類標題的計數(總數 + 達標/未達標),免整個 grid 重繪
+function updateCatCounts(){
+  document.querySelectorAll('#grid .cat-group').forEach(g=>{
+    const cards = g.querySelectorAll('.cat-cards .card');
+    const cnt = g.querySelector('.cat-count'); if (cnt) cnt.textContent = cards.length;
+    const rev = g.querySelector('.cat-rev'); if (!rev) return;
+    let p = 0, f = 0;
+    cards.forEach(c=>{ const a = G.assets[+c.dataset.idx]; if (a && a.eval){ a.eval.pass ? p++ : f++; } });
+    rev.querySelector('.ok').textContent = p;
+    rev.querySelector('.bad').textContent = f;
+    rev.title = `達標 ${p} / 未達標 ${f}`;
+  });
 }
 
 /* 批次分析全部(把每個未分析的模型跑過一次以取得指標) */
