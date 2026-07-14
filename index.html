@@ -75,6 +75,31 @@
     grid-template-columns:repeat(auto-fill,minmax(186px,1fr));
     align-content:start;
   }
+  /* 分類分組檢視 */
+  #grid.grouped{ display:block; padding:0; }
+  .cat-group{ border-bottom:1px solid var(--line); }
+  .cat-header{
+    position:sticky; top:0; z-index:3; display:flex; align-items:center; gap:8px;
+    padding:8px 16px; background:var(--panel-2); border-bottom:1px solid var(--line);
+    cursor:pointer; user-select:none;
+  }
+  .cat-header:hover{ background:#20232c; }
+  .cat-header.drop{ background:var(--accent-dim); box-shadow:inset 0 0 0 2px var(--accent); }
+  .cat-caret{ color:var(--muted); font-size:10px; width:12px; transition:transform .12s; }
+  .cat-group.collapsed .cat-caret{ transform:rotate(-90deg); }
+  .cat-name{ font-weight:600; font-size:13px; color:var(--text); }
+  .cat-count{ color:var(--muted); font-size:11px; font-family:var(--mono); }
+  .cat-ren{ margin-left:auto; background:none; border:1px solid var(--line); color:var(--muted);
+    border-radius:5px; width:24px; height:22px; cursor:pointer; font-size:11px; }
+  .cat-ren:hover{ border-color:var(--accent); color:var(--accent); }
+  .cat-ren-input{ margin-left:2px; background:var(--panel); border:1px solid var(--accent); color:var(--text);
+    border-radius:5px; padding:2px 6px; font-size:13px; font-weight:600; min-width:0; flex:0 1 200px; }
+  .cat-cards{
+    display:grid; gap:14px; padding:16px;
+    grid-template-columns:repeat(auto-fill,minmax(186px,1fr)); align-content:start;
+  }
+  .cat-group.collapsed .cat-cards{ display:none; }
+  .card.dragging{ opacity:.4; }
   .card{
     background:var(--panel); border:1px solid var(--line); border-radius:9px;
     overflow:hidden; cursor:pointer; display:flex; flex-direction:column;
@@ -503,6 +528,7 @@
     <div id="gridBar">
       <span class="stat" id="countStat"></span>
       <div class="spacer"></div>
+      <button class="tbtn sm on" id="groupBtn" title="依分類分組顯示(可折疊、拖曳卡片改分類)">分類檢視</button>
       <button class="tbtn sm" id="reviewBtn" title="外包驗收 / 版本比對模式">驗收</button>
       <label class="chk"><input type="checkbox" id="texOnly">只顯示有貼圖</label>
       <select class="sel" id="sortSel" title="排序方式">
@@ -1576,17 +1602,53 @@ async function buildThumb(asset){
 
 /* ───────── 卡片渲染 ───────── */
 let io;
+/* ── 分類:預設 = .fbx 上層的上層資料夾名;可覆寫 ── */
+function catDefault(a){
+  const parts = (a.path || '').replace(/\\/g,'/').split('/'); parts.pop();   // 去掉檔名 → 資料夾層
+  if (parts.length >= 2) return parts[parts.length - 2];                     // 上上層
+  return parts[parts.length - 1] || '未分類';
+}
+function catOf(a){ return a.category || catDefault(a); }
+let groupMode = true;
+let draggedCardIdx = null;
+let collapsedCats = new Set();
+try { (JSON.parse(localStorage.getItem('fbxmgr.collapsedCats') || '[]') || []).forEach(c=>collapsedCats.add(c)); } catch(_){}
+function saveCollapsed(){ try { localStorage.setItem('fbxmgr.collapsedCats', JSON.stringify([...collapsedCats])); } catch(_){} }
+
+function makeCard(a){
+  const card = document.createElement('div');
+  card.className = 'card' + (a.idx === G.selected ? ' sel' : '')
+    + (G.reviewMode && a.eval && !a.eval.pass ? ' r-fail' : '')
+    + (G.reviewMode && a.diff && (a.diff.status==='changed'||a.diff.status==='new') ? ' r-chg' : '');
+  card.dataset.idx = a.idx;
+  card.draggable = true;
+  card.innerHTML = `
+    <div class="ctitle" title="${esc(a.dir || '(根目錄)')}">${esc(folderName(a))}</div>
+    <div class="thumb">${thumbInner(a)}</div>
+    <div class="meta">
+      <div class="cname" title="${esc(a.name)}">${esc(a.name)}</div>
+      <div class="cpath" title="${esc(a.dir || '(根目錄)')}">${esc(a.dir || '(根目錄)')}</div>
+      <div class="badges">${badgesHTML(a)}</div>
+    </div>`;
+  card.addEventListener('click', ()=>selectAsset(a.idx));
+  card.addEventListener('dragstart', e=>{
+    draggedCardIdx = a.idx; card.classList.add('dragging');
+    try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(a.idx)); } catch(_){}
+  });
+  card.addEventListener('dragend', ()=>{
+    draggedCardIdx = null; card.classList.remove('dragging');
+    document.querySelectorAll('.cat-group.drop').forEach(x=>x.classList.remove('drop'));
+  });
+  a._card = card;
+  io.observe(card);
+  return card;
+}
 function renderGrid(){
   const grid = $('grid');
   grid.innerHTML = '';
   if (io) io.disconnect();
   io = new IntersectionObserver(ents=>{
-    ents.forEach(en=>{
-      if (en.isIntersecting){
-        const idx = +en.target.dataset.idx;
-        enqueueThumb(G.assets[idx]);
-      }
-    });
+    ents.forEach(en=>{ if (en.isIntersecting) enqueueThumb(G.assets[+en.target.dataset.idx]); });
   }, { root:$('gridWrap'), rootMargin:'300px' });
 
   const list = filteredAssets();
@@ -1595,30 +1657,90 @@ function renderGrid(){
     ? `<b>${G.assets.length}</b> 個模型`
     : `<b>${list.length}</b> / ${G.assets.length} 個模型`;
 
-  for (const a of list){
-    const card = document.createElement('div');
-    card.className = 'card' + (a.idx === G.selected ? ' sel' : '')
-      + (G.reviewMode && a.eval && !a.eval.pass ? ' r-fail' : '')
-      + (G.reviewMode && a.diff && (a.diff.status==='changed'||a.diff.status==='new') ? ' r-chg' : '');
-    card.dataset.idx = a.idx;
-    card.innerHTML = `
-      <div class="ctitle" title="${esc(a.dir || '(根目錄)')}">${esc(folderName(a))}</div>
-      <div class="thumb">${thumbInner(a)}</div>
-      <div class="meta">
-        <div class="cname" title="${esc(a.name)}">${esc(a.name)}</div>
-        <div class="cpath" title="${esc(a.dir || '(根目錄)')}">${esc(a.dir || '(根目錄)')}</div>
-        <div class="badges">${badgesHTML(a)}</div>
-      </div>`;
-    card.addEventListener('click', ()=>selectAsset(a.idx));
-    grid.appendChild(card);
-    a._card = card;
-    io.observe(card);
+  if (!groupMode){
+    grid.classList.remove('grouped');
+    for (const a of list) grid.appendChild(makeCard(a));
+    return;
+  }
+  grid.classList.add('grouped');
+  const groups = new Map();                          // 依分類分組(保留組內排序)
+  for (const a of list){ const c = catOf(a); (groups.get(c) || groups.set(c, []).get(c)).push(a); }
+  const names = [...groups.keys()].sort((x,y)=>x.localeCompare(y));
+  for (const name of names){
+    const g = document.createElement('div');
+    g.className = 'cat-group' + (collapsedCats.has(name) ? ' collapsed' : '');
+    g.dataset.cat = name;
+    const header = document.createElement('div');
+    header.className = 'cat-header'; header.dataset.cat = name;
+    header.innerHTML = `<span class="cat-caret">▾</span><span class="cat-name">${esc(name)}</span>`
+      + `<span class="cat-count">${groups.get(name).length}</span>`
+      + `<button class="cat-ren" title="重新命名此分類">✎</button>`;
+    const cards = document.createElement('div'); cards.className = 'cat-cards';
+    groups.get(name).forEach(a=> cards.appendChild(makeCard(a)));
+    g.appendChild(header); g.appendChild(cards);
+    grid.appendChild(g);
   }
 }
 function folderName(a){
   const d = (a.dir || '').replace(/\\/g,'/');
   if (!d) return G.rootName || '(根目錄)';
   return d.split('/').pop();
+}
+/* 分類分組:切換檢視 / 收合 / 改名 / 拖放改分類 */
+$('groupBtn').addEventListener('click', ()=>{
+  groupMode = !groupMode;
+  $('groupBtn').classList.toggle('on', groupMode);
+  renderGrid();
+});
+$('grid').addEventListener('click', e=>{
+  const ren = e.target.closest('.cat-ren');
+  if (ren){ e.stopPropagation(); startCatRename(ren.closest('.cat-header')); return; }
+  const header = e.target.closest('.cat-header');
+  if (header){
+    const g = header.parentElement, name = header.dataset.cat;
+    if (collapsedCats.has(name)) collapsedCats.delete(name); else collapsedCats.add(name);
+    saveCollapsed(); g.classList.toggle('collapsed', collapsedCats.has(name));
+  }
+});
+$('grid').addEventListener('dragover', e=>{
+  if (draggedCardIdx == null) return;
+  const g = e.target.closest('.cat-group'); if (!g) return;
+  e.preventDefault();
+  try{ e.dataTransfer.dropEffect = 'move'; }catch(_){}
+  document.querySelectorAll('.cat-group.drop').forEach(x=>{ if (x !== g) x.classList.remove('drop'); });
+  g.classList.add('drop');
+});
+$('grid').addEventListener('dragleave', e=>{
+  const g = e.target.closest('.cat-group');
+  if (g && !g.contains(e.relatedTarget)) g.classList.remove('drop');
+});
+$('grid').addEventListener('drop', e=>{
+  if (draggedCardIdx == null) return;
+  const g = e.target.closest('.cat-group'); if (!g) return;
+  e.preventDefault();
+  g.classList.remove('drop');
+  const a = G.assets[draggedCardIdx], name = g.dataset.cat;
+  if (a && catOf(a) !== name){ a.category = name; markDirty(); renderGrid(); toast(`已移至分類「${name}」`); }
+});
+function startCatRename(header){
+  if (!header) return;
+  const old = header.dataset.cat;
+  const nameEl = header.querySelector('.cat-name'); if (!nameEl) return;
+  const inp = document.createElement('input'); inp.className = 'cat-ren-input'; inp.value = old;
+  let done = false;
+  const commit = save=>{
+    if (done) return; done = true;
+    const nv = inp.value.trim();
+    if (save && nv && nv !== old){ G.assets.forEach(a=>{ if (catOf(a) === old) a.category = nv; }); markDirty(); }
+    renderGrid();
+  };
+  inp.addEventListener('click', e=> e.stopPropagation());
+  inp.addEventListener('keydown', e=>{
+    if (e.key === 'Enter'){ e.preventDefault(); commit(true); }
+    else if (e.key === 'Escape'){ e.preventDefault(); commit(false); }
+  });
+  inp.addEventListener('blur', ()=> commit(true));
+  nameEl.replaceWith(inp); inp.focus(); inp.select();
 }
 function thumbInner(a){
   if (a.state === 'done' && a.thumb) return `<img src="${a.thumb}" alt="">`;
@@ -3152,12 +3274,14 @@ function collectProjectData(){
     const hasAxis = a.upAxis === 'Y' || a.upAxis === 'Z';
     const hasNote = a.note && a.note.trim();
     const hasLog = a.reviewLog && a.reviewLog.length;
-    if (!hasOv && !hasAxis && !hasNote && !hasLog) return;
+    const hasCat = a.category && a.category !== catDefault(a);   // 只存與預設不同的分類
+    if (!hasOv && !hasAxis && !hasNote && !hasLog && !hasCat) return;
     const rec = {};
     if (hasAxis) rec.upAxis = a.upAxis;
     if (hasOv)   rec.overrides = a.overrides;
     if (hasNote) rec.note = a.note;
     if (hasLog)  rec.reviewLog = a.reviewLog;
+    if (hasCat)  rec.category = a.category;
     assets[a.path] = rec;
   });
   return {
@@ -3395,6 +3519,7 @@ function applyPendingProject(){
     if (rec.upAxis)    a.upAxis = rec.upAxis;
     if (rec.note)      a.note = rec.note;
     if (rec.reviewLog) a.reviewLog = rec.reviewLog;
+    if (rec.category)  a.category = rec.category;
     a.state = 'pending'; a.thumb = null;    // 縮圖重生以反映覆寫
     n++;
   });
