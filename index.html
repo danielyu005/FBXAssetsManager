@@ -17,8 +17,16 @@
   body{
     background:var(--bg); color:var(--text); font-family:var(--sans);
     font-size:13px; display:flex; flex-direction:column; overflow:hidden;
+    zoom:1.2;                              /* 整體介面放大(可用工具列 A− / A+ 調整)*/
   }
   button{ font-family:var(--sans); }
+  .zoomctl{ display:inline-flex; align-items:center; gap:4px; margin-left:2px; }
+  .zoomctl button{
+    width:26px; height:26px; padding:0; border-radius:6px; cursor:pointer;
+    background:var(--panel-2); border:1px solid var(--line); color:var(--text); font-size:13px; line-height:1;
+  }
+  .zoomctl button:hover{ border-color:var(--accent); color:var(--accent); }
+  .zoomctl .zlabel{ color:var(--muted); font-size:11px; font-family:var(--mono); min-width:34px; text-align:center; }
 
   /* ── 頂列 ── */
   #top{
@@ -523,6 +531,11 @@
   <button class="tbtn" id="rescanBtn" disabled>重新掃描</button>
   <span id="curProjLabel" class="proj-label"></span>
   <div class="spacer"></div>
+  <span class="zoomctl" title="調整整體介面大小">
+    <button id="zoomOut" title="縮小">A−</button>
+    <span class="zlabel" id="zoomLabel">120%</span>
+    <button id="zoomIn" title="放大">A+</button>
+  </span>
   <button class="tbtn" id="projBtn" title="儲存 / 載入專案">專案<span id="dirtyDot" class="dirty-dot">●</span></button>
 </div>
 
@@ -3554,6 +3567,17 @@ function applyPendingProject(){
   return n;
 }
 $('projBtn').addEventListener('click', openProjModal);
+/* 介面縮放(無障礙)*/
+const ZOOM_KEY = 'fbxmgr.uiZoom';
+function applyZoom(z){
+  z = Math.round(Math.max(0.9, Math.min(z, 1.8)) * 100) / 100;
+  document.body.style.zoom = z;
+  $('zoomLabel').textContent = Math.round(z * 100) + '%';
+  try { localStorage.setItem(ZOOM_KEY, String(z)); } catch(_){}
+}
+$('zoomIn').addEventListener('click',  ()=> applyZoom((parseFloat(document.body.style.zoom) || 1.2) + 0.1));
+$('zoomOut').addEventListener('click', ()=> applyZoom((parseFloat(document.body.style.zoom) || 1.2) - 0.1));
+(function(){ const s = parseFloat(localStorage.getItem(ZOOM_KEY) || ''); applyZoom(s > 0 ? s : 1.2); })();
 $('projClose').addEventListener('click', closeProjModal);
 $('projCancel').addEventListener('click', closeProjModal);
 $('projModal').addEventListener('click', e=>{ if (e.target === $('projModal')) closeProjModal(); });
