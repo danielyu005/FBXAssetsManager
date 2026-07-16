@@ -132,16 +132,18 @@
   .thumb-in{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; }
   .thumb img{ width:100%; height:100%; object-fit:contain; display:block; }
   .thumb .ph{ color:var(--dim); font-size:11px; font-family:var(--mono); }
-  /* Dump 資源(下載 FBX + 貼圖)*/
-  .card-dl{
-    position:absolute; right:6px; bottom:6px; z-index:2; width:26px; height:26px; padding:0;
+  /* 卡片動作鈕:預覽資料夾 / 下載資源 */
+  .card-dl, .card-fb{
+    position:absolute; bottom:6px; z-index:2; width:26px; height:26px; padding:0;
     display:flex; align-items:center; justify-content:center; cursor:pointer;
     background:rgba(8,9,12,.72); border:1px solid var(--line); border-radius:6px; color:var(--muted);
     opacity:0; transition:opacity .12s, border-color .12s, color .12s, background .12s;
   }
-  .card:hover .card-dl{ opacity:1; }
-  .card-dl:hover{ border-color:var(--accent); color:var(--accent); background:rgba(8,9,12,.9); }
-  .card-dl svg{ width:15px; height:15px; display:block; }
+  .card-dl{ right:6px; }
+  .card-fb{ right:36px; }
+  .card:hover .card-dl, .card:hover .card-fb{ opacity:1; }
+  .card-dl:hover, .card-fb:hover{ border-color:var(--accent); color:var(--accent); background:rgba(8,9,12,.9); }
+  .card-dl svg, .card-fb svg{ width:15px; height:15px; display:block; }
   .card-dl.busy{ opacity:1; color:var(--accent); pointer-events:none; }
   .thumb .spin{
     width:22px; height:22px; border:2px solid var(--line); border-top-color:var(--accent);
@@ -233,6 +235,35 @@
   .proj-meta{ font-size:11px; color:var(--muted); font-family:var(--mono); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .proj-btns{ display:flex; gap:5px; flex:none; }
   .sp-hint{ font-size:11px; color:var(--dim); line-height:1.6; }
+  /* 檔案資料夾預覽 */
+  #fbModal{ position:fixed; inset:0; background:rgba(0,0,0,.55); display:none; align-items:center; justify-content:center; z-index:55; }
+  #fbModal.open{ display:flex; }
+  .fb-card{ width:620px; max-width:94vw; }
+  .fb-bar{ display:flex; align-items:center; gap:8px; }
+  .fb-crumb{ font-size:12px; font-family:var(--mono); color:var(--muted); display:flex; flex-wrap:wrap; align-items:center; gap:2px; min-width:0; }
+  .fb-crumb .seg{ color:var(--accent); cursor:pointer; }
+  .fb-crumb .seg:hover{ text-decoration:underline; }
+  .fb-crumb .seg.cur{ color:var(--text); cursor:default; text-decoration:none; }
+  .fb-crumb .sep{ color:var(--dim); }
+  .fb-list{ max-height:52vh; overflow:auto; border:1px solid var(--line); border-radius:8px; background:var(--panel-2); display:flex; flex-direction:column; }
+  .fb-row{ display:flex; align-items:center; gap:10px; padding:7px 10px; border-bottom:1px solid var(--line); font-size:12.5px; }
+  .fb-row:last-child{ border-bottom:none; }
+  .fb-row.dir{ cursor:pointer; }
+  .fb-row.dir:hover, .fb-row.fbx:hover{ background:var(--panel); }
+  .fb-ic{ flex:0 0 34px; width:34px; height:34px; border-radius:5px; display:flex; align-items:center; justify-content:center;
+    background:repeating-conic-gradient(#16171c 0% 25%,#1b1d23 0% 50%) 0 0 / 10px 10px; overflow:hidden; color:var(--muted); }
+  .fb-ic img{ width:100%; height:100%; object-fit:cover; }
+  .fb-ic.folder{ background:none; color:var(--accent); }
+  .fb-nm{ flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text); }
+  .fb-row.dir .fb-nm{ font-weight:600; }
+  .fb-tag{ flex:0 0 auto; font-family:var(--mono); font-size:10px; color:var(--muted); border:1px solid var(--line); border-radius:4px; padding:1px 6px; }
+  .fb-sz{ flex:0 0 auto; font-family:var(--mono); font-size:10.5px; color:var(--dim); min-width:64px; text-align:right; }
+  .fb-empty{ padding:14px; color:var(--dim); font-size:12px; }
+  .fb-fullpath{ font-family:var(--mono); font-size:11.5px; color:var(--text); word-break:break-all; margin:2px 0 2px; }
+  .fb-fullpath:empty{ display:none; }
+  .fb-fullpath .lbl{ color:var(--muted); }
+  .fb-open{ flex:0 0 auto; background:none; border:1px solid var(--line); color:var(--muted); border-radius:5px; padding:2px 8px; font-size:11px; cursor:pointer; }
+  .fb-open:hover{ border-color:var(--accent); color:var(--accent); }
   #empty{
     position:absolute; inset:0; display:flex; flex-direction:column;
     align-items:center; justify-content:center; gap:16px; text-align:center; padding:30px;
@@ -463,18 +494,26 @@
   .rv-hist-body{ flex:1; min-width:0; }
   .rv-hist-meta{ color:var(--muted); font-family:var(--mono); font-size:10px; }
   .rv-hist-note{ color:var(--text); margin-top:2px; word-break:break-word; }
-  .rv-hist-restore{ flex:none; background:none; border:1px solid var(--line); color:var(--muted); border-radius:5px;
-    padding:2px 7px; font-size:10.5px; cursor:pointer; }
-  .rv-hist-restore:hover{ border-color:var(--accent); color:var(--accent); }
+  .rv-hist-btn{ flex:none; background:none; border:1px solid var(--line); color:var(--muted); border-radius:5px;
+    padding:2px 7px; font-size:10.5px; cursor:pointer; align-self:flex-start; }
+  .rv-hist-btn:hover{ border-color:var(--accent); color:var(--accent); }
+  .rv-hist-btn.on{ border-color:var(--accent); color:var(--accent); }
+  .rv-hist-spec{ font-family:var(--mono); font-size:10px; color:var(--muted); margin-top:4px; line-height:1.6; word-break:break-word; }
   .rv-hist-empty{ font-size:11px; color:var(--dim); }
+  .rv-bigbtn{ width:100%; margin:2px 0 6px; padding:9px; }
   /* 驗證紀錄卡 */
   .rv-vitem{ border:1px solid var(--line); border-radius:8px; padding:8px 9px; margin-bottom:8px; background:var(--panel); }
   .rv-vitem-top{ display:flex; align-items:center; gap:7px; margin-bottom:6px; flex-wrap:wrap; }
   .rv-vitem-time{ font-family:var(--mono); font-size:10.5px; color:var(--muted); }
   .rv-vitem-who{ font-size:11px; color:var(--text); }
-  .rv-vitem-del{ margin-left:auto; background:none; border:1px solid var(--line); color:var(--muted); border-radius:5px;
+  .rv-vitem-del{ background:none; border:1px solid var(--line); color:var(--muted); border-radius:5px;
     width:22px; height:22px; cursor:pointer; font-size:11px; flex:none; }
   .rv-vitem-del:hover{ border-color:var(--bad); color:var(--bad); }
+  .rv-vitem-edit{ flex:none; background:none; border:1px solid var(--line); color:var(--muted); border-radius:5px;
+    padding:2px 8px; height:22px; font-size:10.5px; cursor:pointer; }
+  .rv-vitem-edit:hover{ border-color:var(--accent); color:var(--accent); }
+  .rv-vedit-foot{ display:flex; gap:8px; margin-top:10px; }
+  .rv-vedit-foot .tbtn{ flex:1; }
   .rv-vpill{ font-family:var(--mono); font-size:10px; border-radius:4px; padding:1px 7px; border:1px solid var(--line); }
   .rv-vpill.ok{ color:var(--good); border-color:#2f4a36; }
   .rv-vpill.bad{ color:var(--bad); border-color:#4a2f2f; }
@@ -497,7 +536,6 @@
   .rv-chk input{ accent-color:var(--accent); flex:none; }
   .rv-chk-l{ color:var(--muted); flex:0 0 62px; }
   .rv-chk-v{ font-family:var(--mono); color:var(--text); flex:1; min-width:0; text-align:right; word-break:break-all; }
-  .rv-ver-save{ width:100%; margin-top:10px; }
   /* 歷史驗證紀錄(唯讀) */
   .rv-vhist-h{ font-size:10.5px; color:var(--muted); text-transform:uppercase; letter-spacing:.06em; margin-bottom:8px; display:flex; align-items:center; gap:6px; }
   .rv-vhist-n{ font-family:var(--mono); color:var(--dim); }
@@ -658,6 +696,9 @@
   <button class="tbtn primary" id="pickBtn">選擇資料夾</button>
   <button class="tbtn" id="ghBtn" title="從 GitHub Releases 載入素材">GitHub</button>
   <button class="tbtn" id="rescanBtn" disabled>重新掃描</button>
+  <button class="tbtn" id="folderBtn" title="預覽檔案資料夾(於 App 內瀏覽載入的資料夾樹)" disabled>
+    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" style="vertical-align:-2px"><path d="M1.8 4.2h4l1.3 1.5H14.2v7H1.8z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>
+    預覽檔案資料夾</button>
   <span id="curProjLabel" class="proj-label"></span>
   <div class="spacer"></div>
   <span class="zoomctl" title="調整整體介面大小">
@@ -735,7 +776,7 @@
             <button class="fchip" id="fcSkel" title="骨架">骨架</button>
             <button class="fchip" id="fcBox" title="邊界框">邊界框</button>
             <select id="pvBoxSel" title="邊界框目標(整體 / 指定 Mesh)"><option value="all">整體(全部 Mesh)</option></select>
-            <button class="fchip" id="fcWire" title="線框">線框</button>
+            <button class="fchip" id="fcWire" title="白模檢視:無貼圖白模(Phong)+ 疊上 Mesh 網格線">白模網格</button>
             <button class="fchip" id="fcStats" title="統計 HUD">統計</button>
             <span class="fsep"></span>
             <span class="flabel">背景</span>
@@ -981,6 +1022,30 @@
   </div>
 </div>
 
+<div id="fbModal">
+  <div class="modal-card fb-card">
+    <div class="modal-head">
+      <span>預覽檔案資料夾</span>
+      <button class="ibtn" id="fbClose">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="fb-bar">
+        <div class="fb-crumb" id="fbCrumb"></div>
+        <div class="spacer"></div>
+        <button class="tbtn sm" id="fbSetPath" title="輸入此資料夾在硬碟上的完整路徑(瀏覽器無法自動取得)">設定完整路徑</button>
+        <button class="tbtn sm" id="fbCopy" title="複製此資料夾路徑">複製路徑</button>
+        <button class="tbtn sm" id="fbGithub" title="在 GitHub 開啟此資料夾" style="display:none">在 GitHub 開啟</button>
+      </div>
+      <div class="fb-fullpath" id="fbFull"></div>
+      <div class="fb-list" id="fbList"></div>
+      <div class="sp-hint" id="fbHint"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="tbtn" id="fbCancel">關閉</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <script type="importmap">
@@ -1109,6 +1174,10 @@ async function ingest(entries, rootName, source=null){
   G.selected = -1;
 
   G.entries = entries; G.rootName = rootName; G.source = source;
+  // 本機來源:若專案沒帶絕對路徑,嘗試用「資料夾名稱」的本機快取帶回(重選同名資料夾也記得)
+  if (G.source && G.source.kind === 'local' && !G.source.absPath){
+    try { const c = localStorage.getItem('fbxmgr.rootPath.' + rootName); if (c) G.source.absPath = c; } catch(_){}
+  }
   if (projToAdopt){ G.curProjId = projToAdopt.id; G.curProjName = projToAdopt.name; projToAdopt = null; }
   else { G.curProjId = null; G.curProjName = ''; }   // 新載入 = 尚未關聯任何已存專案(避免存檔誤蓋)
   const images = entries.filter(e => SUPPORTED_TEX.test(e.name));
@@ -1131,6 +1200,7 @@ async function ingest(entries, rootName, source=null){
   await mapLimit(G.assets, 8, async a=>{ try{ a.size = (await entryFile(a)).size; }catch(_){} });
 
   $('rescanBtn').disabled = false;
+  $('folderBtn').disabled = false;
   updateProjLabel();
   renderGrid();
   if (G.pendingProject) applyPendingProject();
@@ -1822,6 +1892,9 @@ function makeCard(a){
   card.innerHTML = `
     <div class="ctitle" title="${esc(a.dir || '(根目錄)')}">${esc(folderName(a))}</div>
     <div class="thumb"><div class="thumb-in">${thumbInner(a)}</div>
+      <button class="card-fb" title="預覽此模型所在的資料夾" draggable="false">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1.8 4.2h4l1.3 1.5H14.2v7H1.8z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>
+      </button>
       <button class="card-dl" title="下載此模型的 FBX + 它參照到的貼圖" draggable="false">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5v8m0 0L5 6.5M8 9.5l3-3M2.5 13.5h11" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
@@ -1834,6 +1907,8 @@ function makeCard(a){
   card.addEventListener('click', ()=>selectAsset(a.idx));
   const dl = card.querySelector('.card-dl');
   if (dl) dl.addEventListener('click', e=>{ e.stopPropagation(); dumpAsset(a, dl); });
+  const fb = card.querySelector('.card-fb');
+  if (fb) fb.addEventListener('click', e=>{ e.stopPropagation(); openFileBrowser(a.dir); });
   card.addEventListener('dragstart', e=>{
     draggedCardIdx = a.idx; card.classList.add('dragging');
     try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(a.idx)); } catch(_){}
@@ -2076,10 +2151,6 @@ function applyBackground(){
   else if (pvDisp.bg==='gradient') pvScene.background = getGradientTex();
   else pvScene.background = new THREE.Color(pvDisp.solidColor);
 }
-function applyWire(){
-  if (!pvModel) return;
-  pvModel.traverse(o=>{ if(o.isMesh){ const mats=Array.isArray(o.material)?o.material:[o.material]; mats.forEach(m=>{ if(m) m.wireframe=pvDisp.wire; }); }});
-}
 function removeModelHelpers(){
   [pvAxes,pvSkel,pvBox].forEach(h=>{ if(h){ pvScene.remove(h); if(h.geometry)h.geometry.dispose(); if(h.material)h.material.dispose(); } });
   pvAxes=pvSkel=pvBox=null;
@@ -2092,8 +2163,8 @@ function buildModelHelpers(){
   autofitGrid(sz);
   pvAxes=new THREE.AxesHelper(dim*0.6); pvAxes.visible=pvDisp.axes; pvScene.add(pvAxes);
   pvSkel=new THREE.SkeletonHelper(pvModel); pvSkel.material.linewidth=2; pvSkel.visible=pvDisp.skeleton; pvScene.add(pvSkel);
-  applyWire();
   computeMeshDims();        // 量各 Mesh 與整體尺寸(靜止姿勢),並建立 AABB 邊界框
+  applyMeshMode();          // 套用渲染模式(白模+網格 / 無光照 / 原始);線框覆蓋在量測後才加
 }
 /* AABB 邊界框目標:'all'(整體)或 mesh index。用 Box3Helper 從實際量到的 AABB 繪製,與尺寸一致。 */
 let pvBoxTarget = 'all';
@@ -2126,7 +2197,7 @@ function renderBoxTargets(){
 /* 依 Mesh 量長寬高(以真實蒙皮頂點取世界 AABB,與畫面/邊界框一致) */
 function computeMeshDims(){
   if (!pvModel){ pvDims=null; pvWorldBox=null; return; }
-  const meshes=[]; pvModel.traverse(o=>{ if (o.isMesh) meshes.push(o); });
+  const meshes=[]; pvModel.traverse(o=>{ if (o.isMesh && o.name!=='__wire') meshes.push(o); });
   const overall=new THREE.Box3(), v=new THREE.Vector3(), list=[];
   for (const mesh of meshes){
     mesh.updateWorldMatrix(true,false);
@@ -2191,7 +2262,7 @@ function applyDisplay(){
   if (pvSkel) pvSkel.visible=pvDisp.skeleton;
   if (pvBox)  pvBox.visible=pvDisp.bbox;
   const bsel=$('pvBoxSel'); if(bsel) bsel.style.display = pvDisp.bbox ? 'inline-block' : 'none';
-  applyWire();
+  applyMeshMode();
   const hud=$('pvStats'); if (hud) hud.style.display = pvDisp.stats ? 'block' : 'none';
   updateDimHud();
   updateDimLabels();
@@ -2286,7 +2357,10 @@ function updateLightGizmo(){
 }
 function showLightGizmo(on){ ensureLightGizmo(); if (pvLightGizmo){ pvLightGizmo.visible = on; if (on) updateLightGizmo(); } }
 
-/* ── Unlit 無光照:把材質換成 MeshBasicMaterial(不受光照 / 環境影響),可逆還原 ── */
+/* ── 渲染模式(統一管理:白模+網格 / 無光照 / 原始材質,皆可逆還原)──
+   pvDisp.wire  = 無貼圖白模(Phong)+ 疊上 Mesh 網格線
+   pvDisp.unlit = 不受光照的純貼圖 / 顏色(MeshBasicMaterial)
+   兩者皆從 o.userData._origMat 派生,切換 / 清除模型時還原。 */
 function buildUnlitMat(src){
   const m = new THREE.MeshBasicMaterial();
   m.name = src.name;
@@ -2303,23 +2377,51 @@ function buildUnlitMat(src){
   return m;
 }
 function disposeMat(m){ (Array.isArray(m)?m:[m]).forEach(x=>{ if (x && x.dispose) x.dispose(); }); }
-function applyUnlit(){
+let pvClayMat = null;
+function getClayMat(){          // 共用白模材質(無貼圖 Phong,受光照顯出形體)
+  if (!pvClayMat) pvClayMat = new THREE.MeshPhongMaterial({
+    color:0xbcbcbc, specular:0x222222, shininess:12, side:THREE.DoubleSide,
+    polygonOffset:true, polygonOffsetFactor:1, polygonOffsetUnits:1 });   // 稍微退後,讓網格線浮在表面
+  return pvClayMat;
+}
+function makeWireOverlay(mesh){  // 疊在 mesh 上的 Mesh 網格線;骨架模型用 SkinnedMesh 綁同一骨架以跟隨動畫
+  const wmat = new THREE.MeshBasicMaterial({ color:0x1c1c1c, wireframe:true, transparent:true, opacity:0.55, depthWrite:false });
+  let ov;
+  if (mesh.isSkinnedMesh){ ov = new THREE.SkinnedMesh(mesh.geometry, wmat); ov.bind(mesh.skeleton, mesh.bindMatrix); ov.bindMode = mesh.bindMode; }
+  else ov = new THREE.Mesh(mesh.geometry, wmat);
+  ov.name = '__wire'; ov.frustumCulled = false; ov.renderOrder = (mesh.renderOrder||0) + 1;
+  ov.matrixAutoUpdate = false; ov.matrix.identity();
+  return ov;
+}
+function clearMeshOverrides(){   // 還原所有 mesh 到原始材質、移除網格線覆蓋(切換 / 清除模型前呼叫)
   if (!pvModel) return;
   pvModel.traverse(o=>{
-    if (!o.isMesh) return;
-    if (pvDisp.unlit){
-      if (!o.userData._litMat) o.userData._litMat = o.material;   // 記住原始(照明)材質
-      if (o.userData._unlitMat) disposeMat(o.userData._unlitMat); // 重建前先釋放舊的 unlit
-      const lit = o.userData._litMat;
-      o.material = Array.isArray(lit) ? lit.map(buildUnlitMat) : buildUnlitMat(lit);
-      o.userData._unlitMat = o.material;
-    } else if (o.userData._litMat){
-      if (o.userData._unlitMat) disposeMat(o.userData._unlitMat);
-      o.material = o.userData._litMat;
-      o.userData._litMat = null; o.userData._unlitMat = null;
-    }
+    if (!o.isMesh || o.name === '__wire') return;
+    o.children.filter(c=>c.name==='__wire').forEach(c=>{ o.remove(c); if (c.material) disposeMat(c.material); });
+    if (o.userData._dispMat){ disposeMat(o.userData._dispMat); o.userData._dispMat = null; }
+    if (o.userData._origMat){ o.material = o.userData._origMat; o.userData._origMat = null; }
   });
-  applyWire();   // 保持線框開關一致
+}
+function applyMeshMode(){
+  if (!pvModel) return;
+  const meshes = [];
+  pvModel.traverse(o=>{ if (o.isMesh && o.name !== '__wire') meshes.push(o); });
+  meshes.forEach(o=>{
+    if (!o.userData._origMat) o.userData._origMat = o.material;      // 首次記住原始材質
+    const orig = o.userData._origMat;
+    if (o.userData._dispMat){ disposeMat(o.userData._dispMat); o.userData._dispMat = null; }   // 清掉上一輪派生材質
+    if (pvDisp.wire){
+      o.material = getClayMat();                                     // 白模(共用,不入 _dispMat)
+    } else if (pvDisp.unlit){
+      const un = Array.isArray(orig) ? orig.map(buildUnlitMat) : buildUnlitMat(orig);
+      o.material = un; o.userData._dispMat = un;
+    } else {
+      o.material = orig;
+    }
+    const existing = o.children.filter(c=>c.name==='__wire');       // 網格線覆蓋
+    if (pvDisp.wire){ if (!existing.length) o.add(makeWireOverlay(o)); }
+    else existing.forEach(c=>{ o.remove(c); if (c.material) disposeMat(c.material); });
+  });
 }
 
 /* ── AABB 邊緣尺寸標註(投影到螢幕) ── */
@@ -2436,13 +2538,7 @@ function clearPreviewModel(){
   removeModelHelpers();
   if (pvMixer){ pvMixer.stopAllAction(); pvMixer.uncacheRoot(pvModel); pvMixer = null; }
   if (pvModel){
-    // 若處於 unlit,先還原原始材質並釋放暫時 unlit 材質,讓 disposeObject 正確釋放
-    pvModel.traverse(o=>{
-      if (o.isMesh && o.userData._litMat){
-        if (o.userData._unlitMat) disposeMat(o.userData._unlitMat);
-        o.material = o.userData._litMat; o.userData._litMat = null; o.userData._unlitMat = null;
-      }
-    });
+    clearMeshOverrides();   // 還原原始材質、移除網格線覆蓋,讓 disposeObject 正確釋放共用幾何
     pvScene.remove(pvModel); disposeObject(pvModel); pvModel = null;
   }
   pvActions = []; pvCurAction = null;
@@ -2495,8 +2591,7 @@ async function loadIntoPreview(a){
   if (pvFrameInfo){ pvControls.target.copy(pvFrameInfo.center); pvControls.update(); }
   buildModelHelpers();      // 骨架 / 邊界框 / 座標軸(依模型尺寸)
   applyLight();             // 依模型尺寸重新定位主光(角度 / 距離相對原點)
-  if (pvDisp.unlit) applyUnlit();   // 維持 unlit 模式
-  applyDisplay();           // 套用目前的顯示輔助開關
+  applyDisplay();           // 套用目前的顯示輔助開關(含渲染模式 applyMeshMode)
 
   // 動畫
   const clips = model.animations || [];
@@ -2689,6 +2784,17 @@ function stdFieldsHTML(a){
   <label class="rv-fld full" style="margin-top:9px"><span>必要動畫剪輯(逗號分隔,以名稱包含比對)</span>
     <input data-k="requiredClips" placeholder="例:idle, walk, attack" value="${esc((st.requiredClips||[]).join(', '))}"></label>`;
 }
+function stdCriteriaSummary(sp){
+  const nn = v => (v==null ? '不限' : v);
+  return [
+    `三角面上限 ${nn(sp.maxTris)}`, `材質上限 ${nn(sp.maxMaterials)}`,
+    `骨骼 ${nn(sp.minBones)}~${nn(sp.maxBones)}`,
+    `必須貼圖:${sp.requireTextures?'是':'否'}`, `命名唯一:${sp.requireUniqueNames?'是':'否'}`,
+    `up 軸:${(sp.upAxis && sp.upAxis!=='any')?sp.upAxis:'不限'}`,
+    sp.nameRegex ? `檔名 /${sp.nameRegex}/` : '檔名不限',
+    (sp.requiredClips && sp.requiredClips.length) ? `必要動畫:${sp.requiredClips.join('、')}` : '必要動畫:無',
+  ].join(' · ');
+}
 function stdHistoryHTML(a){
   const hist = a.standardHistory || [];
   const items = hist.map(h=>`
@@ -2697,40 +2803,51 @@ function stdHistoryHTML(a){
       <div class="rv-hist-body">
         <div class="rv-hist-meta">${esc(h.savedAt||'')}${h.author?' · '+esc(h.author):''}</div>
         ${h.note?`<div class="rv-hist-note">${esc(h.note)}</div>`:''}
+        ${a._stdPreview===h.version?`<div class="rv-hist-spec">${esc(stdCriteriaSummary(h.spec))}</div>`:''}
       </div>
-      <button class="rv-hist-restore" data-ver="${h.version}" title="還原此版本為現行草稿">還原</button>
+      <button class="rv-hist-btn${a._stdPreview===h.version?' on':''}" data-preview="${h.version}" title="預覽此版本的驗收設定">預覽</button>
+      <button class="rv-hist-btn" data-restore="${h.version}" title="還原此版本為現行草稿">還原</button>
     </div>`).join('');
   return `<div class="rv-hist">
     <div class="rv-hist-h">版本紀錄(朔源)</div>
-    ${items || '<div class="rv-hist-empty">尚無版本。調整標準後按「存為新版本」建立首版。</div>'}
+    ${items || '<div class="rv-hist-empty">尚無版本。編輯標準後按「存為新版本」建立首版。</div>'}
   </div>`;
 }
 function standardBlockHTML(a){
   const own = !!a.standard;
   const b = standardBadgeInfo(a);
+  const editing = !!a._stdEditing;
+  const body = editing
+    ? `${own?'':'<div class="sp-hint" style="margin:-2px 0 9px">此模型尚未自訂標準,目前沿用「專案預設範本」。編輯任一項即建立此模型專屬標準。</div>'}
+       ${stdFieldsHTML(a)}
+       <div class="rv-author" style="margin:11px 0 8px"><label>制定者</label>
+         <input id="rvDesigner" placeholder="輸入標準制定者名字(署名於版本)" value="${esc(currentAuthor())}"></div>
+       <div class="rv-std-foot">
+         <input class="rv-std-note" id="rvStdNote" placeholder="版本說明(這次為何調整)…">
+         <button class="tbtn sm primary" id="rvStdCommit" title="把目前標準定為新版本並記錄署名/時間">存為新版本</button>
+       </div>
+       <div class="rv-mini">
+         <button class="tbtn sm" id="rvStdUseTpl" title="以專案預設範本覆蓋此模型標準(轉為草稿)">套用專案範本</button>
+         <button class="tbtn sm" id="rvStdSetTpl" title="把此模型現行標準設為專案預設範本">設為專案範本</button>
+         <button class="tbtn sm" id="rvStdDone" title="收合編輯區">完成編輯</button>
+       </div>`
+    : `<button class="tbtn primary rv-bigbtn" id="rvStdEdit">編輯標準</button>`;
   return `<div class="rv-sec std">
     <div class="rv-sec-h">
       <span class="t">標準</span><span class="who">設計方 · 驗收設定</span>
       <span class="spacer"></span>
       <span class="rv-vbadge ${b.draft?'draft':''}" id="rvStdVer">${esc(b.text)}</span>
     </div>
-    ${own?'':'<div class="sp-hint" style="margin:-4px 0 9px">此模型尚未自訂標準,目前沿用「專案預設範本」。編輯任一項即建立此模型專屬標準。</div>'}
-    ${stdFieldsHTML(a)}
-    <div class="rv-author" style="margin:11px 0 8px"><label>制定者</label>
-      <input id="rvDesigner" placeholder="輸入標準制定者名字(署名於版本)" value="${esc(currentAuthor())}"></div>
-    <div class="rv-std-foot">
-      <input class="rv-std-note" id="rvStdNote" placeholder="版本說明(這次為何調整)…">
-      <button class="tbtn sm primary" id="rvStdCommit" title="把目前標準定為新版本並記錄署名/時間">存為新版本</button>
-    </div>
-    <div class="rv-mini">
-      <button class="tbtn sm" id="rvStdUseTpl" title="以專案預設範本覆蓋此模型標準(轉為草稿)">套用專案範本</button>
-      <button class="tbtn sm" id="rvStdSetTpl" title="把此模型現行標準設為專案預設範本(供其他未自訂模型沿用)">設為專案範本</button>
-    </div>
+    ${body}
     ${stdHistoryHTML(a)}
   </div>`;
 }
 function bindStandardBlock(a){
   const root = $('pvReview'); if (!root) return;
+  const editBtn = $('rvStdEdit');
+  if (editBtn) editBtn.addEventListener('click', ()=>{ a._stdEditing = true; renderReviewSection(a); });
+  const doneBtn = $('rvStdDone');
+  if (doneBtn) doneBtn.addEventListener('click', ()=>{ a._stdEditing = false; renderReviewSection(a); });
   const designer = $('rvDesigner');
   if (designer) designer.addEventListener('input', ()=> setAuthor(designer.value));
   root.querySelectorAll('.rv-sec.std [data-k]').forEach(el=>{
@@ -2749,15 +2866,19 @@ function bindStandardBlock(a){
   const commit = $('rvStdCommit');
   if (commit) commit.addEventListener('click', ()=>{
     commitStandard(a, ($('rvStdNote')?$('rvStdNote').value.trim():''), currentAuthor());
+    a._stdEditing = false;                 // 定版後收合,顯示版本紀錄
     renderReviewSection(a);
-    toast('已存為標準 v'+standardVersion(a) + (currentAuthor()?'':'(未署名,可於上方填入操作者名稱)'));
+    toast('已存為標準 v'+standardVersion(a) + (currentAuthor()?'':'(未署名,可於編輯區填入制定者)'));
   });
   const useTpl = $('rvStdUseTpl');
-  if (useTpl) useTpl.addEventListener('click', ()=>{ useProjectTemplate(a); renderReviewSection(a); toast('已套用專案預設範本(草稿)'); });
+  if (useTpl) useTpl.addEventListener('click', ()=>{ useProjectTemplate(a); a._stdEditing = true; renderReviewSection(a); toast('已套用專案預設範本(草稿)'); });
   const setTpl = $('rvStdSetTpl');
   if (setTpl) setTpl.addEventListener('click', ()=>{ setAsProjectTemplate(a); renderReviewSection(a); toast('已將此模型標準設為專案預設範本'); });
-  root.querySelectorAll('.rv-hist-restore').forEach(btn=> btn.addEventListener('click', ()=>{
-    restoreStandardVersion(a, +btn.dataset.ver); renderReviewSection(a); toast('已還原 v'+btn.dataset.ver+' 為草稿');
+  root.querySelectorAll('.rv-sec.std [data-preview]').forEach(btn=> btn.addEventListener('click', ()=>{
+    const v = +btn.dataset.preview; a._stdPreview = (a._stdPreview===v) ? null : v; renderReviewSection(a);
+  }));
+  root.querySelectorAll('.rv-sec.std [data-restore]').forEach(btn=> btn.addEventListener('click', ()=>{
+    restoreStandardVersion(a, +btn.dataset.restore); a._stdEditing = true; renderReviewSection(a); toast('已還原 v'+btn.dataset.restore+' 為草稿');
   }));
 }
 /* ── 版本差異(對照基準)── */
@@ -2804,33 +2925,57 @@ function modelInfoRows(a){
   }
   return rows.map(([key,label,value])=>({ key, label, value }));
 }
-function ensureVDraft(a){ if (!a._vdraft) a._vdraft = { checks:{}, comment:'' }; return a._vdraft; }
-function vChecklistHTML(a){
-  const draft = ensureVDraft(a);
-  return modelInfoRows(a).map(r=>`
-    <label class="rv-chk" title="打勾表示已確認此項">
-      <input type="checkbox" data-ck="${r.key}" ${draft.checks[r.key]?'checked':''}>
-      <span class="rv-chk-l">${esc(r.label)}</span>
-      <span class="rv-chk-v">${esc(r.value)}</span>
-    </label>`).join('');
+// 驗證編輯狀態:a._verEdit = null(清單模式)或 { id, inspector, checks, comment, info }
+function verStartNew(a){
+  a._verEdit = { id:null, inspector:currentInspector(), checks:{}, comment:'', info:modelInfoRows(a) };
+}
+function verStartEdit(a, rec){
+  const checks = {}; (rec.info||[]).forEach(i=> checks[i.key] = !!i.checked);
+  a._verEdit = { id:rec.id, inspector:rec.inspector||currentInspector(), checks, comment:rec.comment||'',
+    info:(rec.info && rec.info.length) ? rec.info.map(i=>({ key:i.key, label:i.label, value:i.value })) : modelInfoRows(a) };
+}
+function saveVerification(a){
+  const ed = a._verEdit; if (!ed) return;
+  if (!a.verifications) a.verifications = [];
+  const info = ed.info.map(r=>({ key:r.key, label:r.label, value:r.value, checked: !!ed.checks[r.key] }));
+  if (ed.id){                                   // 編輯既有紀錄:只更新確認/備註/檢驗員,保留原始快照與時間
+    const rec = a.verifications.find(x=>x.id===ed.id);
+    if (rec){ rec.inspector = ed.inspector||''; rec.info = info; rec.comment = ed.comment||''; }
+  } else {
+    const ev = evaluateSpec(a);
+    a.verifications.unshift({
+      id:'v_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),
+      timestamp:nowStamp(), inspector:ed.inspector||'', standardVersion:standardVersion(a),
+      snapshot:snapshotOf(a), info, pass: ev?ev.pass:null, fails: ev?ev.fails.slice():[], comment:ed.comment||'',
+    });
+  }
+  a._verEdit = null;
+  markDirty();
 }
 function verifyEditorHTML(a){
-  const draft = ensureVDraft(a);
-  const rows = modelInfoRows(a);
-  const checked = rows.filter(r=>draft.checks[r.key]).length;
+  const ed = a._verEdit;
+  const rows = ed.info;
+  const checked = rows.filter(r=>ed.checks[r.key]).length;
   return `<div class="rv-vedit">
     <div class="rv-author"><label>檢驗員</label>
-      <input id="rvInspector" placeholder="輸入檢驗員名字(署名於此筆驗證)" value="${esc(currentInspector())}"></div>
+      <input id="rvInspector" placeholder="輸入檢驗員名字(署名於此筆驗證)" value="${esc(ed.inspector||'')}"></div>
     <div id="rvLiveResult">${liveResultHTML(a)}</div>
     ${deliveryDefectsHTML(a)}
     ${diffTableHTML(a)}
     <div class="rv-check-h"><span>模型資訊確認</span>
       <span class="rv-check-cnt" id="rvCheckCnt">${checked}/${rows.length} 已確認</span>
       <button class="tbtn sm" id="rvCheckAll">${checked===rows.length && rows.length?'全部取消':'全部確認'}</button></div>
-    <div class="rv-checks" id="rvChecks">${vChecklistHTML(a)}</div>
+    <div class="rv-checks" id="rvChecks">${rows.map(r=>`
+      <label class="rv-chk" title="打勾表示已確認此項">
+        <input type="checkbox" data-ck="${r.key}" ${ed.checks[r.key]?'checked':''}>
+        <span class="rv-chk-l">${esc(r.label)}</span>
+        <span class="rv-chk-v">${esc(r.value)}</span></label>`).join('')}</div>
     <div class="rv-note"><label>補充描述 / 驗收備註</label>
-      <textarea id="rvDraftComment" rows="3" placeholder="檢驗員建議 / 評論、需回報事項…">${esc(draft.comment||'')}</textarea></div>
-    <button class="tbtn primary rv-ver-save" id="rvVerAdd" title="把上方確認結果與備註存為一筆驗證紀錄">＋ 儲存為驗證紀錄</button>
+      <textarea id="rvDraftComment" rows="3" placeholder="檢驗員建議 / 評論、需回報事項…">${esc(ed.comment||'')}</textarea></div>
+    <div class="rv-vedit-foot">
+      <button class="tbtn" id="rvVerCancel">取消</button>
+      <button class="tbtn primary" id="rvVerSave">${ed.id?'儲存變更':'＋ 儲存為驗證紀錄'}</button>
+    </div>
   </div>`;
 }
 function verItemHTML(v){
@@ -2848,7 +2993,9 @@ function verItemHTML(v){
       <span class="rv-vpill ${cls}">${txt}</span>
       ${v.standardVersion?`<span class="rv-vpill">標準 v${v.standardVersion}</span>`:''}
       ${info.length?`<span class="rv-vpill">確認 ${checkedN}/${info.length}</span>`:''}
-      <button class="rv-vitem-del" data-id="${v.id}" title="刪除此紀錄">🗑</button>
+      <span class="spacer"></span>
+      <button class="rv-vitem-edit" data-edit="${v.id}" title="編輯此紀錄">編輯</button>
+      <button class="rv-vitem-del" data-del="${v.id}" title="刪除此紀錄">🗑</button>
     </div>
     ${infoHtml}
     ${(v.fails && v.fails.length) ? `<div class="rv-vsnap"><span class="vfails">未過:${v.fails.map(esc).join('、')}</span></div>` : ''}
@@ -2858,51 +3005,52 @@ function verItemHTML(v){
 function verificationBlockHTML(a){
   const list = a.verifications || [];
   const items = list.map(verItemHTML).join('');
+  const body = a._verEdit
+    ? verifyEditorHTML(a)
+    : `<button class="tbtn primary rv-bigbtn" id="rvVerNew">＋ 新增紀錄</button>`;
   return `<div class="rv-sec vrf">
     <div class="rv-sec-h"><span class="t">驗證</span><span class="who">檢驗員 · 確認與評論</span></div>
-    ${verifyEditorHTML(a)}
+    ${body}
     <div class="rv-vhist">
       <div class="rv-vhist-h">歷史驗證紀錄 <span class="rv-vhist-n">${list.length}</span></div>
-      <div id="rvVerList">${items || '<div class="rv-vempty">尚無紀錄。於上方編輯區逐項確認、填寫備註後,按「儲存為驗證紀錄」。</div>'}</div>
+      <div id="rvVerList">${items || '<div class="rv-vempty">尚無紀錄。按「＋ 新增紀錄」逐項確認、填寫備註後儲存。</div>'}</div>
     </div>
   </div>`;
 }
 function bindVerificationBlock(a){
-  const draft = ensureVDraft(a);
-  const insp = $('rvInspector');
-  if (insp) insp.addEventListener('input', ()=> setInspector(insp.value));
-  const updateCnt = ()=>{
-    const rows = modelInfoRows(a);
-    const n = rows.filter(r=>draft.checks[r.key]).length;
-    const el = $('rvCheckCnt'); if (el) el.textContent = `${n}/${rows.length} 已確認`;
-    const all = $('rvCheckAll'); if (all) all.textContent = (n===rows.length && rows.length) ? '全部取消' : '全部確認';
-  };
-  const checks = $('rvChecks');
-  if (checks) checks.addEventListener('change', e=>{
-    const t = e.target; if (!t.dataset.ck) return;
-    draft.checks[t.dataset.ck] = t.checked; updateCnt();
-  });
-  const allBtn = $('rvCheckAll');
-  if (allBtn) allBtn.addEventListener('click', ()=>{
-    const rows = modelInfoRows(a);
-    const allOn = rows.length && rows.every(r=>draft.checks[r.key]);
-    rows.forEach(r=> draft.checks[r.key] = !allOn);
-    (checks ? checks.querySelectorAll('input[data-ck]') : []).forEach(i=> i.checked = !allOn);
-    updateCnt();
-  });
-  const cm = $('rvDraftComment');
-  if (cm) cm.addEventListener('input', ()=>{ draft.comment = cm.value; });
-  const add = $('rvVerAdd');
-  if (add) add.addEventListener('click', ()=>{
-    addVerification(a, currentInspector());
-    renderReviewSection(a);
-    toast('已新增驗證紀錄' + (currentInspector()?'':'(未填檢驗員,可於編輯區補上)'));
-  });
+  const newBtn = $('rvVerNew');
+  if (newBtn) newBtn.addEventListener('click', ()=>{ verStartNew(a); renderReviewSection(a); });
+  const ed = a._verEdit;
+  if (ed){
+    const insp = $('rvInspector');
+    if (insp) insp.addEventListener('input', ()=>{ ed.inspector = insp.value; setInspector(insp.value); });
+    const updateCnt = ()=>{
+      const n = ed.info.filter(r=>ed.checks[r.key]).length;
+      const el = $('rvCheckCnt'); if (el) el.textContent = `${n}/${ed.info.length} 已確認`;
+      const all = $('rvCheckAll'); if (all) all.textContent = (n===ed.info.length && ed.info.length) ? '全部取消' : '全部確認';
+    };
+    const checks = $('rvChecks');
+    if (checks) checks.addEventListener('change', e=>{ const t=e.target; if(!t.dataset.ck) return; ed.checks[t.dataset.ck]=t.checked; updateCnt(); });
+    const allBtn = $('rvCheckAll');
+    if (allBtn) allBtn.addEventListener('click', ()=>{
+      const allOn = ed.info.length && ed.info.every(r=>ed.checks[r.key]);
+      ed.info.forEach(r=> ed.checks[r.key] = !allOn);
+      (checks ? checks.querySelectorAll('input[data-ck]') : []).forEach(i=> i.checked = !allOn);
+      updateCnt();
+    });
+    const cm = $('rvDraftComment');
+    if (cm) cm.addEventListener('input', ()=>{ ed.comment = cm.value; });
+    const cancel = $('rvVerCancel');
+    if (cancel) cancel.addEventListener('click', ()=>{ a._verEdit = null; renderReviewSection(a); });
+    const save = $('rvVerSave');
+    if (save) save.addEventListener('click', ()=>{ const editing = !!ed.id; saveVerification(a); renderReviewSection(a); toast(editing?'已儲存變更':'已新增驗證紀錄'); });
+  }
   const listEl = $('rvVerList'); if (!listEl) return;
   listEl.addEventListener('click', e=>{
-    const btn = e.target.closest('.rv-vitem-del'); if (!btn) return;
-    a.verifications = (a.verifications||[]).filter(x=>x.id!==btn.dataset.id);
-    markDirty(); renderReviewSection(a);
+    const del = e.target.closest('[data-del]');
+    if (del){ a.verifications = (a.verifications||[]).filter(x=>x.id!==del.dataset.del); markDirty(); renderReviewSection(a); return; }
+    const edi = e.target.closest('[data-edit]');
+    if (edi){ const rec = (a.verifications||[]).find(x=>x.id===edi.dataset.edit); if (rec){ verStartEdit(a, rec); renderReviewSection(a); } }
   });
 }
 function renderReviewSection(a){
@@ -3172,7 +3320,7 @@ function recountTextures(){
     if (t && t.isTexture && t.image) set.add(t.uuid);
   }));
   G.curAsset.texCount = set.size;
-  if (pvDisp.unlit) applyUnlit();   // unlit 中換貼圖 → 重建 unlit 材質以反映
+  if (pvDisp.unlit && !pvDisp.wire) applyMeshMode();   // unlit 中換貼圖 → 重建 unlit 材質以反映
   updateCard(G.curAsset);
 }
 function texName(tex){
@@ -3238,7 +3386,7 @@ $('fcBox').addEventListener('click', ()=>toggleDisp('bbox'));
 $('pvBoxSel').addEventListener('change', e=>setBoxTarget(e.target.value==='all'?'all':+e.target.value));
 $('fcWire').addEventListener('click', ()=>toggleDisp('wire'));
 $('fcStats').addEventListener('click', ()=>toggleDisp('stats'));
-$('ltUnlit').addEventListener('change', e=>{ pvDisp.unlit = e.target.checked; applyUnlit(); });
+$('ltUnlit').addEventListener('change', e=>{ pvDisp.unlit = e.target.checked; applyMeshMode(); });
 $('pvBgSel').addEventListener('change', e=>{
   pvDisp.bg = e.target.value; applyBackground();
   $('pvSolidRow').style.display = (pvDisp.bg === 'solid') ? 'flex' : 'none';
@@ -3315,7 +3463,7 @@ function meshesForMaterial(mat){                 // 取用此材質的網格(mat
   const out = [];
   if (!pvModel) return out;
   pvModel.traverse(o=>{
-    if (!o.isMesh || !o.geometry) return;
+    if (!o.isMesh || !o.geometry || o.name === '__wire') return;
     if (!mat){ out.push(o); return; }
     const mats = Array.isArray(o.material) ? o.material : [o.material];
     if (mats.includes(mat)) out.push(o);
@@ -3332,7 +3480,7 @@ function firstUvKey(geom){
 function modelHasAnyUV(){
   if (!pvModel) return false;
   let has = false;
-  pvModel.traverse(o=>{ if (!has && o.isMesh && firstUvKey(o.geometry)) has = true; });
+  pvModel.traverse(o=>{ if (!has && o.isMesh && o.name!=='__wire' && firstUvKey(o.geometry)) has = true; });
   return has;
 }
 function buildUvControls(){
@@ -3695,24 +3843,6 @@ function currentAuthor(){ try { return localStorage.getItem('fbxmgr.author') || 
 function setAuthor(name){ try { localStorage.setItem('fbxmgr.author', name || ''); } catch(_){} }
 function currentInspector(){ try { return localStorage.getItem('fbxmgr.inspector') || ''; } catch(_){ return ''; } }  // 驗證檢驗員
 function setInspector(name){ try { localStorage.setItem('fbxmgr.inspector', name || ''); } catch(_){} }
-/* 新增一筆驗證紀錄(檢驗員做檢驗:快照當下指標 + 達標結果 + 可留評論)*/
-function addVerification(a, inspector){
-  if (!a.verifications) a.verifications = [];
-  const ev = evaluateSpec(a);
-  const draft = ensureVDraft(a);
-  const info = modelInfoRows(a).map(r=>({ key:r.key, label:r.label, value:r.value, checked: !!draft.checks[r.key] }));
-  a.verifications.unshift({
-    id:'v_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6),
-    timestamp:nowStamp(), inspector:inspector||'',
-    standardVersion:standardVersion(a),
-    snapshot:snapshotOf(a),
-    info,                                       // 逐項模型資訊 + 檢驗員確認狀態
-    pass: ev ? ev.pass : null, fails: ev ? ev.fails.slice() : [],
-    comment: draft.comment || '',
-  });
-  a._vdraft = { checks:{}, comment:'' };         // 提交後清空編輯區(檢驗員名字仍記於 localStorage)
-  markDirty();
-}
 
 function snapshotOf(a){
   const s = a.stats || {};
@@ -4192,6 +4322,119 @@ async function dumpAsset(a, btn){
   }catch(err){ toast('下載失敗:' + (err.message||err), 4000); }
   finally{ if (btn) btn.classList.remove('busy'); }
 }
+
+/* ───────── 檔案資料夾預覽(App 內瀏覽載入的資料夾樹)─────────
+   瀏覽器無法開啟系統檔案總管,故以 App 內清單呈現;GitHub 來源另提供開啟網頁連結。 */
+let fbDir = '';
+function fbScan(dir){
+  const files = [], subs = new Map();
+  const prefix = dir ? dir + '/' : '';
+  for (const e of (G.entries || [])){
+    const p = (e.path || '').replace(/\\/g,'/');
+    if (dir && !p.startsWith(prefix)) continue;
+    const rest = dir ? p.slice(prefix.length) : p;
+    const slash = rest.indexOf('/');
+    if (slash < 0) files.push(e);
+    else { const s = rest.slice(0, slash); subs.set(s, (subs.get(s)||0)+1); }
+  }
+  return { files, subs };
+}
+function fbGithubUrl(dir){
+  const s = G.source; if (!s || s.kind !== 'github') return null;
+  const base = `https://github.com/${s.owner}/${s.repo}/tree/${encodeURIComponent(s.branch||'')}`;
+  return dir ? base + '/' + dir.split('/').map(encodeURIComponent).join('/') : base;
+}
+/* 硬碟完整路徑:瀏覽器無法自動取得(即使記住資料夾 handle 也拿不到絕對路徑),
+   由使用者手動輸入一次;優先存於專案(隨專案儲存/開啟),並依 rootName 快取於本機以便重選同名資料夾時帶回。 */
+function fbRootAbs(){
+  if (G.source && G.source.absPath) return G.source.absPath;
+  try { return localStorage.getItem('fbxmgr.rootPath.' + (G.rootName||'')) || ''; } catch(_){ return ''; }
+}
+function fbFullPath(dir){
+  const abs = fbRootAbs();
+  if (!abs) return '';
+  const win = /\\/.test(abs) || /^[a-zA-Z]:/.test(abs);       // 依輸入判斷用反斜線(Windows)或斜線
+  const sep = win ? '\\' : '/';
+  const sub = (dir||'') ? (dir.split('/').join(sep)) : '';
+  return abs + (sub ? sep + sub : '');
+}
+function fbSetRootAbs(){
+  if (!G.rootName){ toast('尚未載入資料夾'); return; }
+  const cur = fbRootAbs();
+  const v = prompt(`輸入「${G.rootName}」在硬碟上的完整路徑(瀏覽器無法自動取得,輸入一次即可,會存進專案並記住):\n例如  D:\\Assets\\${G.rootName}`, cur || '');
+  if (v == null) return;
+  const val = v.trim().replace(/[\\/]+$/,'');
+  if (G.source) G.source.absPath = val;                                  // 存進專案(隨儲存/開啟記憶)
+  try { localStorage.setItem('fbxmgr.rootPath.' + G.rootName, val); } catch(_){}  // 依資料夾名快取,重選同名時帶回
+  markDirty();
+  fbRender(fbDir);
+}
+function openFileBrowser(dir){
+  if (!G.entries || !G.entries.length){ toast('尚未載入任何資料夾'); return; }
+  $('fbModal').classList.add('open');
+  fbRender(dir || '');
+}
+function closeFileBrowser(){ $('fbModal').classList.remove('open'); }
+function fbRender(dir){
+  fbDir = dir || '';
+  const { files, subs } = fbScan(fbDir);
+  // 麵包屑
+  const root = G.rootName || '根目錄';
+  const segs = fbDir ? fbDir.split('/') : [];
+  let crumb = `<span class="seg${segs.length?'':' cur'}" data-d="">${esc(root)}</span>`;
+  let acc = '';
+  segs.forEach((s,i)=>{ acc = acc ? acc + '/' + s : s;
+    crumb += `<span class="sep">/</span><span class="seg${i===segs.length-1?' cur':''}" data-d="${esc(acc)}">${esc(s)}</span>`; });
+  $('fbCrumb').innerHTML = crumb;
+  // 清單:子資料夾(排序)+ 檔案(fbx / 圖 / 其他)
+  const subRows = [...subs.keys()].sort((a,b)=>a.localeCompare(b)).map(name=>{
+    const child = fbDir ? fbDir + '/' + name : name;
+    return `<div class="fb-row dir" data-dir="${esc(child)}">
+      <div class="fb-ic folder"><svg viewBox="0 0 16 16" width="18" height="18"><path d="M1.8 4.2h4l1.3 1.5H14.2v7H1.8z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg></div>
+      <div class="fb-nm">${esc(name)}</div><span class="fb-tag">${subs.get(name)} 項</span><span class="fb-sz"></span></div>`;
+  });
+  const rank = e => /\.fbx$/i.test(e.name) ? 0 : (SUPPORTED_TEX.test(e.name) ? 1 : 2);
+  const fileRows = files.slice().sort((a,b)=> rank(a)-rank(b) || a.name.localeCompare(b.name)).map((e,i)=>{
+    const isFbx = /\.fbx$/i.test(e.name);
+    const isImg = SUPPORTED_TEX.test(e.name);
+    const ext = (e.name.split('.').pop()||'').toUpperCase();
+    const asset = isFbx ? G.assets.find(a=>a.path===e.path) : null;
+    let ic;
+    if (isFbx && asset && asset.thumb) ic = `<div class="fb-ic"><img src="${asset.thumb}"></div>`;
+    else if (isImg && e._blob) ic = `<div class="fb-ic"><img src="${e._blob}"></div>`;
+    else ic = `<div class="fb-ic">${esc(ext.slice(0,4))}</div>`;
+    const open = (isFbx && asset) ? `<button class="fb-open" data-idx="${asset.idx}">開啟預覽</button>` : '';
+    return `<div class="fb-row ${isFbx?'fbx':''}" data-fi="${i}" data-path="${esc(e.path)}">
+      ${ic}<div class="fb-nm" title="${esc(e.name)}">${esc(e.name)}</div>
+      <span class="fb-tag">${esc(ext)}</span>${open}<span class="fb-sz" data-path="${esc(e.path)}">…</span></div>`;
+  });
+  const listHtml = subRows.join('') + fileRows.join('');
+  $('fbList').innerHTML = listHtml || `<div class="fb-empty">此資料夾沒有檔案。</div>`;
+  // GitHub 開啟連結
+  const ghUrl = fbGithubUrl(fbDir);
+  const ghBtn = $('fbGithub'); ghBtn.style.display = ghUrl ? 'inline-flex' : 'none';
+  if (ghUrl) ghBtn.onclick = ()=> window.open(ghUrl, '_blank', 'noopener');
+  const isLocal = !(G.source && G.source.kind === 'github');
+  // 「設定完整路徑」僅本機來源適用(GitHub 沒有硬碟路徑)
+  $('fbSetPath').style.display = isLocal ? 'inline-flex' : 'none';
+  // 完整硬碟路徑顯示
+  const full = fbFullPath(fbDir);
+  $('fbFull').innerHTML = (isLocal && full) ? `<span class="lbl">完整路徑:</span>${esc(full)}` : '';
+  // 提示
+  $('fbHint').textContent = !isLocal
+    ? '瀏覽器無法開啟系統檔案總管;可用「在 GitHub 開啟」到原始資料夾頁面。'
+    : (full
+        ? '「複製路徑」會複製上方完整路徑,貼到檔案總管網址列即可前往。此路徑已存進專案並依資料夾名記住。'
+        : `瀏覽器無法自動取得硬碟完整路徑(即使記住資料夾也一樣)。按「設定完整路徑」輸入一次「${G.rootName||''}」的絕對路徑,之後會存進專案並記住。目前為相對路徑。`);
+  // 非同步補上檔案大小(此資料夾範圍,數量少)
+  files.forEach(e=>{
+    const cell = $('fbList').querySelector(`.fb-sz[data-path="${cssEsc(e.path)}"]`); if (!cell) return;
+    const fa = /\.fbx$/i.test(e.name) && G.assets.find(a=>a.path===e.path);
+    if (fa && fa.size != null){ cell.textContent = fmtBytes(fa.size); return; }
+    entryFile(e).then(f=> cell.textContent = fmtBytes(f.size)).catch(()=> cell.textContent = '');
+  });
+}
+function cssEsc(s){ return String(s).replace(/["\\]/g, '\\$&'); }
 // 儲存到瀏覽器(更新目前專案或新建)
 async function saveProjectToBrowser(){
   if (!G.assets.length){ toast('尚未載入任何資產'); return; }
@@ -4435,6 +4678,24 @@ function applyPendingProject(){
   return n;
 }
 $('projBtn').addEventListener('click', openProjModal);
+/* 檔案資料夾預覽 */
+$('folderBtn').addEventListener('click', ()=> openFileBrowser(''));
+$('fbClose').addEventListener('click', closeFileBrowser);
+$('fbCancel').addEventListener('click', closeFileBrowser);
+$('fbModal').addEventListener('click', e=>{ if (e.target === $('fbModal')) closeFileBrowser(); });
+$('fbCrumb').addEventListener('click', e=>{ const s = e.target.closest('.seg'); if (s && !s.classList.contains('cur')) fbRender(s.dataset.d); });
+$('fbList').addEventListener('click', e=>{
+  const open = e.target.closest('.fb-open');
+  if (open){ e.stopPropagation(); closeFileBrowser(); selectAsset(+open.dataset.idx); return; }
+  const dir = e.target.closest('.fb-row.dir');
+  if (dir) fbRender(dir.dataset.dir);
+});
+$('fbSetPath').addEventListener('click', fbSetRootAbs);
+$('fbCopy').addEventListener('click', async ()=>{
+  const path = fbFullPath(fbDir) || ((G.rootName || '') + (fbDir ? '/' + fbDir : ''));
+  try{ await navigator.clipboard.writeText(path); toast('已複製路徑:' + path); }
+  catch(_){ toast('複製失敗,路徑:' + path, 4000); }
+});
 /* 介面縮放(無障礙)*/
 const ZOOM_KEY = 'fbxmgr.uiZoom';
 function applyZoom(z){
