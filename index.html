@@ -129,8 +129,20 @@
       repeating-conic-gradient(#16171c 0% 25%, #1b1d23 0% 50%) 0 0 / 22px 22px;
     display:flex; align-items:center; justify-content:center;
   }
+  .thumb-in{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; }
   .thumb img{ width:100%; height:100%; object-fit:contain; display:block; }
   .thumb .ph{ color:var(--dim); font-size:11px; font-family:var(--mono); }
+  /* Dump 資源(下載 FBX + 貼圖)*/
+  .card-dl{
+    position:absolute; right:6px; bottom:6px; z-index:2; width:26px; height:26px; padding:0;
+    display:flex; align-items:center; justify-content:center; cursor:pointer;
+    background:rgba(8,9,12,.72); border:1px solid var(--line); border-radius:6px; color:var(--muted);
+    opacity:0; transition:opacity .12s, border-color .12s, color .12s, background .12s;
+  }
+  .card:hover .card-dl{ opacity:1; }
+  .card-dl:hover{ border-color:var(--accent); color:var(--accent); background:rgba(8,9,12,.9); }
+  .card-dl svg{ width:15px; height:15px; display:block; }
+  .card-dl.busy{ opacity:1; color:var(--accent); pointer-events:none; }
   .thumb .spin{
     width:22px; height:22px; border:2px solid var(--line); border-top-color:var(--accent);
     border-radius:50%; animation:sp .8s linear infinite;
@@ -618,6 +630,8 @@
   .rv-repair{ border-left:2px solid var(--accent); padding:5px 0 5px 9px; margin:2px 0 8px; font-size:11.5px; color:var(--text); }
   .rv-repair ul{ margin:4px 0; padding-left:18px; font-family:var(--mono); font-size:10.5px; color:var(--muted); }
   .rv-repair-note{ font-size:10.5px; color:var(--dim); }
+  .rv-dupe{ border-left:2px solid var(--bad); padding:5px 0 5px 9px; margin:2px 0 8px; font-size:11.5px; color:var(--text); }
+  .rv-dupe ul{ margin:4px 0; padding-left:18px; font-family:var(--mono); font-size:10.5px; color:var(--bad); }
   .diag-block{ border-left:2px solid var(--bad); padding:5px 0 5px 9px; margin:8px 0; }
   .diag-block .dbt{ font-size:11.5px; color:var(--text); margin-bottom:3px; }
   .diag-block .dbn{ font-family:var(--mono); font-size:10.5px; color:var(--muted); line-height:1.6; }
@@ -766,10 +780,18 @@
             </div>
           </div>
           <div id="pvLightPop" class="vp-pop">
+            <div class="gp-row"><label>無光照 Unlit</label><input type="checkbox" id="ltUnlit" title="只看貼圖 / 顏色,不受燈光與環境影響"></div>
+            <div class="gp-sep"></div>
             <div class="gp-row"><label>曝光</label><input type="range" id="ltExp" min="0.3" max="2.5" step="0.05" value="1.05"></div>
             <div class="gp-row"><label>主光</label><input type="range" id="ltKey" min="0" max="5" step="0.1" value="1.9"></div>
             <div class="gp-row"><label>環境光</label><input type="range" id="ltHemi" min="0" max="4" step="0.1" value="1.2"></div>
             <div class="gp-row"><label>補光</label><input type="range" id="ltFill" min="0" max="3" step="0.1" value="0.5"></div>
+            <div class="gp-sep"></div>
+            <div class="gp-label">主光角度 / 距離(相對世界原點)</div>
+            <div class="gp-row"><label>方位角</label><input type="range" id="ltAzim" min="0" max="360" step="1" value="35"></div>
+            <div class="gp-row"><label>仰角</label><input type="range" id="ltElev" min="-89" max="89" step="1" value="45"></div>
+            <div class="gp-row"><label>距離</label><input type="range" id="ltDist" min="0.3" max="5" step="0.1" value="1.5"></div>
+            <div class="gp-info" id="ltInfo">方位 35° · 仰角 45° · 距離 1.5×</div>
           </div>
           <div id="pvOverlay">
             <div class="spacer"></div>
@@ -1185,9 +1207,13 @@ async function ghApi(path, accept){
   if (GH_TOKEN) h['Authorization'] = 'Bearer ' + GH_TOKEN;
   const r = await fetch('https://api.github.com' + path, { headers:h });
   if (!r.ok){
-    const hint = r.status === 403 ? '(API 速率限制或無權限,請填入 Token 後重試)'
+    const sso = r.headers.get('x-github-sso') || '';                    // SSO 未授權時 GitHub 會帶此標頭
+    let msg = ''; try { msg = (await r.clone().json()).message || ''; } catch(_){}
+    const hint = r.status === 403 ? '(速率限制 / 無權限 / 需 SSO 授權)'
                : r.status === 404 ? '(找不到,確認 repo / 分支 / 路徑與存取權限)' : '';
-    throw new Error(`GitHub API ${r.status} ${hint}`);
+    const err = new Error(`GitHub API ${r.status} ${hint}${msg?' — '+msg:''}`);
+    err.status = r.status; err.sso = sso; err.apiMessage = msg;
+    throw err;
   }
   return r;
 }
@@ -1306,14 +1332,25 @@ async function ghFetchTree(){
     let info;
     try { info = await (await ghApi(`/repos/${owner}/${repo}`)).json(); }
     catch(e){
-      if (/40[34]/.test(e.message)){
+      if (e.status === 403 || e.status === 404){
         if (!GH_TOKEN)
           return setErr(`找不到 ${owner}/${repo}。若為私有庫,請在下方填入 Token。`);
-        let tokenOk = false;                              // Token 有效嗎?連 /user 驗證
-        try { await ghApi('/user'); tokenOk = true; } catch(_){}
+        // SSO 未授權(組織啟用 SAML):GitHub 會在標頭 / 訊息明示,直接給授權連結
+        const ssoRequired = /required|authorization/i.test(e.sso) || /SAML|SSO|single sign-on/i.test(e.apiMessage||'');
+        if (ssoRequired){
+          const m = (e.sso||'').match(/url=(\S+)/);
+          const url = m ? m[1] : `https://github.com/orgs/${owner}/sso`;
+          return setErr(`組織「${owner}」啟用了 SAML SSO,你的 Token 尚未對它授權。到 Token 設定頁對「${owner}」按「Configure SSO → Authorize」,或直接開:${url} 完成授權後重試。`);
+        }
+        // Token 有效嗎?順便讀出 classic Token 的 scope(X-OAuth-Scopes;fine-grained 為空)
+        let tokenOk = false, scopes = null;
+        try { const ur = await ghApi('/user'); tokenOk = true; scopes = ur.headers.get('x-oauth-scopes'); } catch(_){}
         if (!tokenOk)
           return setErr('Token 無效或已過期(無法通過 /user 驗證)。請重新產生一組 Token。');
-        return setErr(`Token 有效,但看不到 ${owner}/${repo}。請逐項確認:①Fine-grained Token 要在「Repository access」明確勾選此庫;②到 Token 設定頁對此組織按「Authorize/Configure SSO」;③組織政策是否封鎖此類 Token;④owner/repo 名稱是否正確。`);
+        // classic Token(有回 scope 標頭)缺少 repo scope → 讀不到私有庫
+        if (scopes != null && !/(^|,\s*)repo(,|$)/.test(scopes))
+          return setErr(`Token 有效,但缺少「repo」scope,無法讀取私有庫(目前 scope:${scopes||'(無)'})。請重新產生 classic Token 並勾選整個「repo」;若組織啟用 SSO,產生後還要按「Configure SSO → Authorize」。`);
+        return setErr(`Token 有效但看不到 ${owner}/${repo}。classic Token:確認勾了「repo」scope 且已對「${owner}」按 Configure SSO → Authorize;fine-grained Token:在「Repository access」勾選此庫並對組織授權。也請確認 owner/repo 名稱與組織政策未封鎖此類 Token。`);
       }
       return setErr(e.message);
     }
@@ -1473,6 +1510,15 @@ function computeStats(root){
   });
   let skelBones = 0; skel.forEach(s=>skelBones += s.bones.length);
   return { tris:Math.round(tris), verts, meshes, bones:Math.max(bones, skelBones) };
+}
+/* 檢查載入後場景中是否仍有「重複骨骼命名」。
+   three.js 動畫軌以「名稱」綁定,同名骨骼會使 PropertyBinding 綁到第一個同名節點,
+   造成部分骨骼的 scale / position 錯位。載入前的 patchDuplicateNames 通常已修好;
+   若這裡仍偵測到重複(如 ASCII FBX、超短名等未能原地修補的情況),即為錯位主因,需回報廠商改名。 */
+function findDuplicateBoneNames(root){
+  const seen = new Map();
+  root.traverse(o=>{ if (o.isBone){ const n = o.name || '(未命名)'; seen.set(n, (seen.get(n)||0)+1); } });
+  return [...seen.entries()].filter(([,c])=>c>1).map(([name,count])=>({ name, count }));
 }
 
 /* ───────── 縮圖渲染（共用小 renderer） ───────── */
@@ -1731,6 +1777,7 @@ async function buildThumb(asset){
   asset.materialCount = mats.length;
   asset.clips = (model.animations || []).map(c=>({ name:c.name || '', duration:+(c.duration||0).toFixed(3) }));
   asset.renames = diag.renames || [];       // 自動修復的重複命名(交付缺陷紀錄)
+  asset.dupeBones = findDuplicateBoneNames(model);   // 殘留的重複骨骼名(動畫綁定錯亂 → 骨骼錯位)
 
   // 套用已記錄的覆寫,讓縮圖也反映手動貼圖(載入專案後)
   if (asset.overrides){
@@ -1774,13 +1821,19 @@ function makeCard(a){
   card.draggable = true;
   card.innerHTML = `
     <div class="ctitle" title="${esc(a.dir || '(根目錄)')}">${esc(folderName(a))}</div>
-    <div class="thumb">${thumbInner(a)}</div>
+    <div class="thumb"><div class="thumb-in">${thumbInner(a)}</div>
+      <button class="card-dl" title="下載此模型的 FBX + 它參照到的貼圖" draggable="false">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5v8m0 0L5 6.5M8 9.5l3-3M2.5 13.5h11" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
     <div class="meta">
       <div class="cname" title="${esc(a.name)}">${esc(a.name)}</div>
       <div class="cpath" title="${esc(a.dir || '(根目錄)')}">${esc(a.dir || '(根目錄)')}</div>
       <div class="badges">${badgesHTML(a)}</div>
     </div>`;
   card.addEventListener('click', ()=>selectAsset(a.idx));
+  const dl = card.querySelector('.card-dl');
+  if (dl) dl.addEventListener('click', e=>{ e.stopPropagation(); dumpAsset(a, dl); });
   card.addEventListener('dragstart', e=>{
     draggedCardIdx = a.idx; card.classList.add('dragging');
     try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(a.idx)); } catch(_){}
@@ -1933,7 +1986,7 @@ function diffTitle(df){
 }
 function updateCard(a){
   if (!a._card) return;
-  const t = a._card.querySelector('.thumb');
+  const t = a._card.querySelector('.thumb-in');
   if (t) t.innerHTML = thumbInner(a);
   const bd = a._card.querySelector('.badges');
   if (bd) bd.innerHTML = badgesHTML(a);
@@ -1972,7 +2025,7 @@ let previewRenderer, pvScene, pvCam, pvControls, pvMixer, pvClock;
 let pvModel = null, pvActions = [], pvCurAction = null, pvPlaying = true, pvClipIdx = 0;
 let pvKey=null, pvFill=null, pvHemi=null, pvWorldBox=null;
 const pvCamState = { fov:38, ortho:false, autoRotate:false };
-const pvLight = { exposure:1.05, key:1.9, hemi:1.2, fill:0.5 };
+const pvLight = { exposure:1.05, key:1.9, hemi:1.2, fill:0.5, azimuth:35, elevation:45, distance:1.5 };
 let pvRAF = 0, pvUpMode = 'auto', pvFrameInfo = null;
 let pvSeeking = false, pvMaterials = [], pendingSlot = null, pvSeekEl, pvTimeEl;
 /* 2D UV / 貼圖檢視狀態 */
@@ -1981,7 +2034,7 @@ const pvUv = { on:false, matIndex:-1, slot:'map', checker:true, wire:true,
 
 /* 檢視輔助(Debug Flow Bar)狀態 */
 const pvDisp = {
-  grid:true, axes:false, skeleton:false, bbox:false, wire:false, stats:false,
+  grid:true, axes:false, skeleton:false, bbox:false, wire:false, stats:false, unlit:false,
   bg:'solid', solidColor:'#101116',
   gridCount:20, gridCell:1, gridUnit:'m', gridAuto:true,
   gridColor:'#5a6273', gridCenter:'#8a93a5', gridOpacity:0.9,
@@ -2200,6 +2253,73 @@ function applyLight(){
   if (pvKey) pvKey.intensity = pvLight.key;
   if (pvHemi) pvHemi.intensity = pvLight.hemi;
   if (pvFill) pvFill.intensity = pvLight.fill;
+  // 主光角度 / 距離:以世界座標原點(0,0,0)為中心,依方位角 + 仰角 + 距離定位;target 預設為原點,故永遠朝原點照射
+  if (pvKey){
+    const az = pvLight.azimuth * Math.PI/180, el = pvLight.elevation * Math.PI/180;
+    const base = (pvFrameInfo && pvFrameInfo.maxDim) ? pvFrameInfo.maxDim : 2;
+    const r = Math.max(base * pvLight.distance, 0.001);
+    pvKey.position.set(r*Math.cos(el)*Math.sin(az), r*Math.sin(el), r*Math.cos(el)*Math.cos(az));
+  }
+  updateLightGizmo();
+}
+/* 主光位置指示器(小球 + 連到原點的線),開啟「光照」浮層時顯示,方便看角度/距離 */
+let pvLightGizmo = null;
+function ensureLightGizmo(){
+  if (pvLightGizmo || !pvScene) return;
+  const g = new THREE.Group(); g.name = '__lightGizmo'; g.visible = false; g.renderOrder = 999;
+  const ball = new THREE.Mesh(new THREE.SphereGeometry(1,16,12),
+    new THREE.MeshBasicMaterial({ color:0xF5A623, depthTest:false, transparent:true }));
+  ball.name = 'ball'; g.add(ball);
+  const lg = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(1,1,1)]);
+  const line = new THREE.Line(lg, new THREE.LineBasicMaterial({ color:0xF5A623, transparent:true, opacity:0.5, depthTest:false }));
+  line.name = 'line'; g.add(line);
+  pvScene.add(g); pvLightGizmo = g;
+}
+function updateLightGizmo(){
+  if (!pvLightGizmo || !pvKey) return;
+  const p = pvKey.position;
+  const base = (pvFrameInfo && pvFrameInfo.maxDim) ? pvFrameInfo.maxDim : 2;
+  const ball = pvLightGizmo.getObjectByName('ball');
+  if (ball){ ball.position.copy(p); ball.scale.setScalar(base * 0.03); }
+  const line = pvLightGizmo.getObjectByName('line');
+  if (line){ const a = line.geometry.attributes.position; a.setXYZ(0,0,0,0); a.setXYZ(1,p.x,p.y,p.z); a.needsUpdate = true; }
+}
+function showLightGizmo(on){ ensureLightGizmo(); if (pvLightGizmo){ pvLightGizmo.visible = on; if (on) updateLightGizmo(); } }
+
+/* ── Unlit 無光照:把材質換成 MeshBasicMaterial(不受光照 / 環境影響),可逆還原 ── */
+function buildUnlitMat(src){
+  const m = new THREE.MeshBasicMaterial();
+  m.name = src.name;
+  m.map = src.map || null;
+  if (src.color) m.color.copy(src.color);
+  m.vertexColors = !!src.vertexColors;
+  m.transparent = !!src.transparent;
+  m.opacity = (src.opacity != null) ? src.opacity : 1;
+  m.alphaMap = src.alphaMap || null;
+  m.alphaTest = src.alphaTest || 0;
+  m.side = (src.side != null) ? src.side : THREE.FrontSide;
+  m.wireframe = !!src.wireframe;
+  m.needsUpdate = true;
+  return m;
+}
+function disposeMat(m){ (Array.isArray(m)?m:[m]).forEach(x=>{ if (x && x.dispose) x.dispose(); }); }
+function applyUnlit(){
+  if (!pvModel) return;
+  pvModel.traverse(o=>{
+    if (!o.isMesh) return;
+    if (pvDisp.unlit){
+      if (!o.userData._litMat) o.userData._litMat = o.material;   // 記住原始(照明)材質
+      if (o.userData._unlitMat) disposeMat(o.userData._unlitMat); // 重建前先釋放舊的 unlit
+      const lit = o.userData._litMat;
+      o.material = Array.isArray(lit) ? lit.map(buildUnlitMat) : buildUnlitMat(lit);
+      o.userData._unlitMat = o.material;
+    } else if (o.userData._litMat){
+      if (o.userData._unlitMat) disposeMat(o.userData._unlitMat);
+      o.material = o.userData._litMat;
+      o.userData._litMat = null; o.userData._unlitMat = null;
+    }
+  });
+  applyWire();   // 保持線框開關一致
 }
 
 /* ── AABB 邊緣尺寸標註(投影到螢幕) ── */
@@ -2315,7 +2435,16 @@ function closePreview(){
 function clearPreviewModel(){
   removeModelHelpers();
   if (pvMixer){ pvMixer.stopAllAction(); pvMixer.uncacheRoot(pvModel); pvMixer = null; }
-  if (pvModel){ pvScene.remove(pvModel); disposeObject(pvModel); pvModel = null; }
+  if (pvModel){
+    // 若處於 unlit,先還原原始材質並釋放暫時 unlit 材質,讓 disposeObject 正確釋放
+    pvModel.traverse(o=>{
+      if (o.isMesh && o.userData._litMat){
+        if (o.userData._unlitMat) disposeMat(o.userData._unlitMat);
+        o.material = o.userData._litMat; o.userData._litMat = null; o.userData._unlitMat = null;
+      }
+    });
+    pvScene.remove(pvModel); disposeObject(pvModel); pvModel = null;
+  }
   pvActions = []; pvCurAction = null;
 }
 async function loadIntoPreview(a){
@@ -2354,6 +2483,8 @@ async function loadIntoPreview(a){
   a.clips = (model.animations || []).map(c=>({ name:c.name || '', duration:+(c.duration||0).toFixed(3) }));
   a.renames = diag.renames || [];
   if (a.renames.length) toast(`已自動修復 ${a.renames.length} 個重複骨骼命名(交付缺陷,建議回報廠商)`, 3500);
+  a.dupeBones = findDuplicateBoneNames(model);   // 載入後仍殘留的重複骨骼名(動畫綁定錯亂 → 骨骼錯位)
+  if (a.dupeBones.length) toast(`⚠ 仍有 ${a.dupeBones.length} 組重複骨骼命名未能修復,動畫可能綁錯骨骼造成錯位`, 4500);
   reviewEvaluate(a);
   updateCard(a);
 
@@ -2363,6 +2494,8 @@ async function loadIntoPreview(a){
   pvFrameInfo = frameToCamera(model, pvCam, 1.5);
   if (pvFrameInfo){ pvControls.target.copy(pvFrameInfo.center); pvControls.update(); }
   buildModelHelpers();      // 骨架 / 邊界框 / 座標軸(依模型尺寸)
+  applyLight();             // 依模型尺寸重新定位主光(角度 / 距離相對原點)
+  if (pvDisp.unlit) applyUnlit();   // 維持 unlit 模式
   applyDisplay();           // 套用目前的顯示輔助開關
 
   // 動畫
@@ -2461,6 +2594,17 @@ function repairHTML(a){
   return `<div class="rv-repair">🛠 已自動修復 ${a.renames.length} 個重複 Model 命名(否則動畫會歪):<ul>`
     + a.renames.map(r=>`<li>${esc(r.from)} → ${esc(r.to)}</li>`).join('')
     + `</ul><span class="rv-repair-note">這是交付缺陷,正解應請廠商在 DCC 端改名重匯。</span></div>`;
+}
+// 交付缺陷彙整:已修復的重複命名 + 仍殘留的重複骨骼名(骨骼錯位主因)
+function deliveryDefectsHTML(a){
+  let html = '';
+  if (a.renames && a.renames.length) html += repairHTML(a);
+  if (a.dupeBones && a.dupeBones.length){
+    html += `<div class="rv-dupe">⚠ 仍有 ${a.dupeBones.length} 組重複骨骼命名未能自動修復,three.js 動畫會綁到第一個同名骨骼 → 造成部分骨骼 scale / position 錯位:<ul>`
+      + a.dupeBones.map(d=>`<li>${esc(d.name)} ×${d.count}</li>`).join('')
+      + `</ul><span class="rv-repair-note">請廠商在 DCC 端讓每根骨骼命名唯一後重匯(ASCII FBX 或超短名無法原地自動修補)。</span></div>`;
+  }
+  return html;
 }
 function updateTabDots(a){
   const matDot = (a && ((a.missing && a.missing.length) || (a.renames && a.renames.length)));
@@ -2678,7 +2822,7 @@ function verifyEditorHTML(a){
     <div class="rv-author"><label>檢驗員</label>
       <input id="rvInspector" placeholder="輸入檢驗員名字(署名於此筆驗證)" value="${esc(currentInspector())}"></div>
     <div id="rvLiveResult">${liveResultHTML(a)}</div>
-    ${(a.renames && a.renames.length) ? repairHTML(a) : ''}
+    ${deliveryDefectsHTML(a)}
     ${diffTableHTML(a)}
     <div class="rv-check-h"><span>模型資訊確認</span>
       <span class="rv-check-cnt" id="rvCheckCnt">${checked}/${rows.length} 已確認</span>
@@ -3028,6 +3172,7 @@ function recountTextures(){
     if (t && t.isTexture && t.image) set.add(t.uuid);
   }));
   G.curAsset.texCount = set.size;
+  if (pvDisp.unlit) applyUnlit();   // unlit 中換貼圖 → 重建 unlit 材質以反映
   updateCard(G.curAsset);
 }
 function texName(tex){
@@ -3093,6 +3238,7 @@ $('fcBox').addEventListener('click', ()=>toggleDisp('bbox'));
 $('pvBoxSel').addEventListener('change', e=>setBoxTarget(e.target.value==='all'?'all':+e.target.value));
 $('fcWire').addEventListener('click', ()=>toggleDisp('wire'));
 $('fcStats').addEventListener('click', ()=>toggleDisp('stats'));
+$('ltUnlit').addEventListener('change', e=>{ pvDisp.unlit = e.target.checked; applyUnlit(); });
 $('pvBgSel').addEventListener('change', e=>{
   pvDisp.bg = e.target.value; applyBackground();
   $('pvSolidRow').style.display = (pvDisp.bg === 'solid') ? 'flex' : 'none';
@@ -3101,6 +3247,9 @@ const VP_POPS = ['pvGridPop','pvCamPop','pvLightPop'];
 function togglePop(id){
   const willOpen = !$(id).classList.contains('open');
   VP_POPS.forEach(p=> $(p).classList.toggle('open', p===id && willOpen));
+  const lightOpen = $('pvLightPop').classList.contains('open');
+  if (lightOpen) $('ltUnlit').checked = pvDisp.unlit;           // 開啟時同步無光照勾選狀態
+  showLightGizmo(lightOpen);                                     // 開「光照」浮層時顯示主光位置指示器
 }
 $('pvGridBtn').addEventListener('click', ()=>togglePop('pvGridPop'));
 $('pvCamBtn').addEventListener('click', ()=>{ applyCamState(); togglePop('pvCamPop'); });
@@ -3117,6 +3266,10 @@ $('ltExp').addEventListener('input', e=>{ pvLight.exposure=parseFloat(e.target.v
 $('ltKey').addEventListener('input', e=>{ pvLight.key=parseFloat(e.target.value); applyLight(); });
 $('ltHemi').addEventListener('input', e=>{ pvLight.hemi=parseFloat(e.target.value); applyLight(); });
 $('ltFill').addEventListener('input', e=>{ pvLight.fill=parseFloat(e.target.value); applyLight(); });
+function updateLtInfo(){ const el=$('ltInfo'); if(el) el.textContent = `方位 ${pvLight.azimuth|0}° · 仰角 ${pvLight.elevation|0}° · 距離 ${pvLight.distance}×`; }
+$('ltAzim').addEventListener('input', e=>{ pvLight.azimuth=parseFloat(e.target.value); applyLight(); updateLtInfo(); });
+$('ltElev').addEventListener('input', e=>{ pvLight.elevation=parseFloat(e.target.value); applyLight(); updateLtInfo(); });
+$('ltDist').addEventListener('input', e=>{ pvLight.distance=parseFloat(e.target.value); applyLight(); updateLtInfo(); });
 $('gridCell').addEventListener('input', e=>{ pvDisp.gridAuto=false; pvDisp.gridCell = Math.max(0.01, parseFloat(e.target.value)||1); buildGrid(); updateGridInfo(); });
 $('gridCount').addEventListener('input', e=>{ pvDisp.gridAuto=false; pvDisp.gridCount = Math.max(1, Math.min(parseInt(e.target.value)||20, 400)); buildGrid(); updateGridInfo(); });
 $('gridUnit').addEventListener('input', e=>{ pvDisp.gridUnit = e.target.value; updateGridInfo(); renderDims(); updateDimHud(); });
@@ -3303,7 +3456,7 @@ function setViewMode(mode){
   $('pvView3D').classList.toggle('on', !uv);
   $('pvViewUV').classList.toggle('on', uv);
   // 收起 3D 專用的浮層
-  if (uv) VP_POPS.forEach(p=> $(p).classList.remove('open'));
+  if (uv){ VP_POPS.forEach(p=> $(p).classList.remove('open')); showLightGizmo(false); }
   if (uv){ buildUvControls(); uvFit(); renderUV(); }
 }
 $('pvView3D').addEventListener('click', ()=> setViewMode('3d'));
@@ -3952,11 +4105,92 @@ function collectProjectData(){
   };
 }
 function downloadJSON(obj, filename){
-  const blob = new Blob([JSON.stringify(obj)], { type:'application/json' });
+  downloadBlob(new Blob([JSON.stringify(obj)], { type:'application/json' }), filename);
+}
+function downloadBlob(blob, filename){
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url; link.download = filename; link.click();
-  setTimeout(()=>URL.revokeObjectURL(url), 1000);
+  setTimeout(()=>URL.revokeObjectURL(url), 2000);
+}
+
+/* ───────── Dump 資源:把模型的 FBX + 同資料夾貼圖打包成 ZIP ─────────
+   自帶極簡 ZIP 產生器(store 無壓縮 + CRC32),不依賴外部函式庫(符合 CSP)。 */
+function crc32(u8){
+  let table = crc32._t;
+  if (!table){ table = crc32._t = new Uint32Array(256);
+    for (let n=0;n<256;n++){ let c=n; for (let k=0;k<8;k++) c = (c&1) ? (0xEDB88320 ^ (c>>>1)) : (c>>>1); table[n]=c>>>0; } }
+  let crc = 0xFFFFFFFF;
+  for (let i=0;i<u8.length;i++) crc = (crc>>>8) ^ table[(crc ^ u8[i]) & 0xFF];
+  return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+function makeZip(files){                 // files: [{ name, data:Uint8Array }] — store(無壓縮),內容即原始位元組
+  const enc = new TextEncoder();
+  const FLAG_UTF8 = 0x0800;              // 一般用途位元 bit 11:檔名為 UTF-8(避免中文等非 ASCII 檔名亂碼)
+  const u16 = n => new Uint8Array([n&255,(n>>8)&255]);
+  const u32 = n => new Uint8Array([n&255,(n>>>8)&255,(n>>>16)&255,(n>>>24)&255]);
+  const cat = arrs => { let len=0; arrs.forEach(a=>len+=a.length); const o=new Uint8Array(len); let p=0; arrs.forEach(a=>{ o.set(a,p); p+=a.length; }); return o; };
+  const chunks = [], central = []; let offset = 0;
+  for (const f of files){
+    const nb = enc.encode(f.name), crc = crc32(f.data), sz = f.data.length;
+    const local = cat([ u32(0x04034b50), u16(20),u16(FLAG_UTF8),u16(0),u16(0),u16(0),
+      u32(crc), u32(sz), u32(sz), u16(nb.length), u16(0), nb ]);
+    chunks.push(local, f.data);
+    central.push(cat([ u32(0x02014b50), u16(20),u16(20),u16(FLAG_UTF8),u16(0),u16(0),u16(0),
+      u32(crc), u32(sz), u32(sz), u16(nb.length), u16(0),u16(0),u16(0),u16(0), u32(0), u32(offset), nb ]));
+    offset += local.length + sz;
+  }
+  const cdStart = offset; let cdSize = 0;
+  central.forEach(c=>{ chunks.push(c); cdSize += c.length; });
+  chunks.push(cat([ u32(0x06054b50), u16(0),u16(0), u16(files.length), u16(files.length),
+    u32(cdSize), u32(cdStart), u16(0) ]));
+  return new Blob(chunks, { type:'application/zip' });
+}
+function dataURLToBytes(u){                 // "data:...;base64,xxxx" → Uint8Array
+  const i = String(u).indexOf(','); if (i < 0) return null;
+  try{ const bin = atob(u.slice(i+1)); const arr = new Uint8Array(bin.length);
+    for (let j=0;j<bin.length;j++) arr[j] = bin.charCodeAt(j); return arr; }catch(_){ return null; }
+}
+// 下載「此模型的 FBX + 它實際參照到的貼圖」(非整個資料夾)
+async function dumpAsset(a, btn){
+  if (btn && btn.classList.contains('busy')) return;
+  if (btn) btn.classList.add('busy');
+  try{
+    if (!a.diag){ try { await buildThumb(a); } catch(_){} }   // 尚未分析 → 先解析以取得參照貼圖清單
+    const files = [];
+    files.push({ name:a.name, data:new Uint8Array(await (await entryFile(a)).arrayBuffer()) });
+    const seen = new Set([a.name.toLowerCase()]);
+    const addUrl = async (name, url)=>{
+      const key = (name||'').toLowerCase();
+      if (!name || !url || seen.has(key)) return;
+      try{ const buf = await (await fetch(url)).arrayBuffer();
+        files.push({ name, data:new Uint8Array(buf) }); seen.add(key); }catch(_){}
+    };
+    // 1) FBX 實際參照且在資料夾中解析到的貼圖(diag 由分析/預覽時記錄)
+    for (const it of ((a.diag && a.diag.items) || [])){
+      if (it.blobURL && (it.status === 'ok' || it.status === 'failed'))
+        await addUrl(it.raw || basename(it.blobURL), it.blobURL);
+    }
+    // 2) 使用者手動指派 / 覆寫的貼圖(資料夾引用 or 內嵌上傳)
+    const ov = a.overrides || {};
+    for (const mi in ov) for (const slot in ov[mi]){
+      const e = ov[mi][slot]; if (!e || e.cleared) continue;
+      if (e.ref) await addUrl(e.name || basename(e.ref), resolveOverrideRef(e.ref));
+      else if (e.data){
+        const key = (e.name||'').toLowerCase();
+        if (e.name && !seen.has(key)){ const bytes = dataURLToBytes(e.data); if (bytes){ files.push({ name:e.name, data:bytes }); seen.add(key); } }
+      }
+    }
+    const texN = files.length - 1;
+    if (texN === 0){                                     // 無外部參照貼圖(多為內嵌於 FBX)→ 直接下載 FBX
+      downloadBlob(new Blob([files[0].data]), a.name);
+      toast(`已下載 ${a.name}(無外部參照貼圖,若有多為內嵌於 FBX)`);
+    } else {
+      downloadBlob(makeZip(files), a.name.replace(/\.[^.]+$/,'') + '.zip');
+      toast(`已下載 ${a.name} + ${texN} 張參照貼圖`);
+    }
+  }catch(err){ toast('下載失敗:' + (err.message||err), 4000); }
+  finally{ if (btn) btn.classList.remove('busy'); }
 }
 // 儲存到瀏覽器(更新目前專案或新建)
 async function saveProjectToBrowser(){
