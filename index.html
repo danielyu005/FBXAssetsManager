@@ -224,6 +224,10 @@
   .gh-status{ font-size:12px; color:var(--muted); min-height:16px; font-family:var(--mono); word-break:break-all; }
   #projModal{ position:fixed; inset:0; background:rgba(0,0,0,.55); display:none; align-items:center; justify-content:center; z-index:50; }
   #projModal.open{ display:flex; }
+  #cleanModal{ position:fixed; inset:0; background:rgba(0,0,0,.55); display:none; align-items:center; justify-content:center; z-index:50; }
+  #cleanModal.open{ display:flex; }
+  #cleanModal .tbtn{ width:100%; text-align:center; }
+  #cleanModal .tbtn.danger{ background:var(--bad); border-color:var(--bad); color:#fff; font-weight:600; }
   .proj-card{ width:560px; }
   .sec-title{ font-size:12px; font-weight:600; color:var(--muted); }
   .proj-list{ max-height:300px; overflow:auto; border:1px solid var(--line); border-radius:8px; background:var(--panel-2); display:flex; flex-direction:column; }
@@ -706,6 +710,7 @@
     <span class="zlabel" id="zoomLabel">120%</span>
     <button id="zoomIn" title="放大">A+</button>
   </span>
+  <button class="tbtn" id="cleanBtn" title="釋放記憶體 / 清除瀏覽器儲存">清理</button>
   <button class="tbtn" id="projBtn" title="儲存 / 載入專案">專案<span id="dirtyDot" class="dirty-dot">●</span></button>
 </div>
 
@@ -1043,6 +1048,29 @@
     </div>
     <div class="modal-foot">
       <button class="tbtn" id="fbCancel">關閉</button>
+    </div>
+  </div>
+</div>
+
+<div id="cleanModal">
+  <div class="modal-card">
+    <div class="modal-head">
+      <span>清理 / 釋放</span>
+      <button class="ibtn" id="cleanClose">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="sec-title">記憶體(目前工作階段)</div>
+      <div class="sp-hint" id="cleanMemInfo"></div>
+      <button class="tbtn" id="cleanMem">釋放記憶體(卸載目前模型 / 貼圖)</button>
+      <div class="gp-sep"></div>
+      <div class="sec-title">瀏覽器儲存</div>
+      <div class="sp-hint" id="cleanStoreInfo"></div>
+      <button class="tbtn" id="cleanStore">清除已存專案與書籤</button>
+      <div class="sp-hint">保留:介面字級、面板尺寸等偏好。ℹ 瀏覽器下載快取(jsDelivr / raw 的 FBX、貼圖)無法由網頁清除,需到瀏覽器設定手動清。</div>
+      <div class="gh-status" id="cleanStatus"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="tbtn" id="cleanCloseBtn">關閉</button>
     </div>
   </div>
 </div>
@@ -4723,6 +4751,73 @@ function applyZoom(z){
 $('zoomIn').addEventListener('click',  ()=> applyZoom((parseFloat(document.body.style.zoom) || 1.2) + 0.1));
 $('zoomOut').addEventListener('click', ()=> applyZoom((parseFloat(document.body.style.zoom) || 1.2) - 0.1));
 (function(){ const s = parseFloat(localStorage.getItem(ZOOM_KEY) || ''); applyZoom(s > 0 ? s : 1.2); })();
+
+/* ───────── 清理 / 釋放 ───────── */
+function releaseMemory(){          // 卸載目前工作階段:釋放 blob / GPU / FBX 位元,保留已存專案
+  closePreview();
+  G.blobURLs.forEach(u=>URL.revokeObjectURL(u)); G.blobURLs = [];
+  G.fileIndex = { byName:new Map(), byTail:new Map(), blobName:new Map() };
+  G.assets = []; G.entries = []; G.imageList = [];
+  G.rootName = ''; G.source = null; G.dirHandle = null;
+  G.curProjId = null; G.curProjName = '';
+  G.selected = -1; G.curAsset = null;
+  G.dirty = false; updateDirty();
+  if (io) io.disconnect();
+  $('grid').innerHTML = ''; $('grid').classList.remove('grouped');
+  $('empty').style.display = '';
+  $('gridBar').classList.remove('on');
+  $('countStat').innerHTML = '';
+  $('rescanBtn').disabled = true;
+  updateProjLabel();
+  if (G.reviewMode) updateReviewSummary();
+}
+async function updateCleanInfo(){
+  const bytes = G.assets.reduce((s,a)=>s+(a.size||0), 0);
+  $('cleanMemInfo').innerHTML = `已載入模型 <b>${G.assets.length}</b> · 貼圖 blob <b>${G.blobURLs.length}</b> · FBX 佔記憶體約 <b>${fmtBytes(bytes)}</b>`
+    + (G.dirty ? ' <span style="color:var(--accent)">(有未儲存變更,釋放將捨棄)</span>' : '');
+  let usage = '—';
+  try { if (navigator.storage && navigator.storage.estimate){ const e = await navigator.storage.estimate(); usage = fmtBytes(e.usage || 0); } } catch(_){}
+  $('cleanStoreInfo').innerHTML = `已存專案 <b>${loadProjects().length}</b> 筆 · 書籤 <b>${loadBookmarks().length}</b> 筆 · 瀏覽器儲存佔用約 <b>${usage}</b>`;
+}
+function openCleanModal(){
+  $('cleanStatus').textContent = ''; disarmClean();
+  updateCleanInfo();
+  $('cleanModal').classList.add('open');
+}
+function closeCleanModal(){ disarmClean(); $('cleanModal').classList.remove('open'); }
+let cleanArmed = false, cleanArmTimer = null;
+function disarmClean(){
+  cleanArmed = false; clearTimeout(cleanArmTimer);
+  const b = $('cleanStore'); if (b){ b.textContent = '清除已存專案與書籤'; b.classList.remove('danger'); }
+}
+async function clearStoredData(){
+  try { await new Promise(res=>{ const r = indexedDB.deleteDatabase(IDB_NAME); r.onsuccess = r.onerror = r.onblocked = ()=>res(); }); } catch(_){}
+  projCache = [];
+  ['fbxmgr.projects','fbxmgr.ghBookmarks','fbxmgr.collapsedCats'].forEach(k=>{ try { localStorage.removeItem(k); } catch(_){} });
+  G.curProjId = null; G.curProjName = ''; updateProjLabel();
+  disarmClean();
+  $('cleanStatus').textContent = '已清除:已存專案、書籤、分類收合狀態。';
+  updateCleanInfo();
+  toast('已清除瀏覽器儲存的專案與書籤');
+}
+$('cleanBtn').addEventListener('click', openCleanModal);
+$('cleanClose').addEventListener('click', closeCleanModal);
+$('cleanCloseBtn').addEventListener('click', closeCleanModal);
+$('cleanModal').addEventListener('click', e=>{ if (e.target === $('cleanModal')) closeCleanModal(); });
+$('cleanMem').addEventListener('click', ()=>{
+  releaseMemory(); updateCleanInfo();
+  $('cleanStatus').textContent = '已釋放記憶體:卸載模型 / 貼圖 / GPU 資源。';
+  toast('已釋放記憶體');
+});
+$('cleanStore').addEventListener('click', ()=>{      // 兩段式確認(sandbox 無法用 confirm)
+  if (!cleanArmed){
+    cleanArmed = true;
+    const b = $('cleanStore'); b.textContent = '⚠ 再按一次確認清除(不可復原)'; b.classList.add('danger');
+    cleanArmTimer = setTimeout(disarmClean, 4000);
+    return;
+  }
+  clearStoredData();
+});
 $('projClose').addEventListener('click', closeProjModal);
 $('projCancel').addEventListener('click', closeProjModal);
 $('projModal').addEventListener('click', e=>{ if (e.target === $('projModal')) closeProjModal(); });
