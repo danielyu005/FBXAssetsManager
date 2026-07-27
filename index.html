@@ -822,6 +822,7 @@
           </div>
           <div id="pvLightPop" class="vp-pop">
             <div class="gp-row"><label>無光照 Unlit</label><input type="checkbox" id="ltUnlit" title="只看貼圖 / 顏色,不受燈光與環境影響"></div>
+            <div class="gp-row"><label>頂點色 Vertex Color</label><input type="checkbox" id="ltVColor" title="預設關閉:忽略模型烘焙的頂點色(避免近黑頂點色把貼圖壓黑)。勾選才顯示頂點色。"></div>
             <div class="gp-sep"></div>
             <div class="gp-row"><label>曝光</label><input type="range" id="ltExp" min="0.3" max="2.5" step="0.05" value="1.05"></div>
             <div class="gp-row"><label>主光</label><input type="range" id="ltKey" min="0" max="5" step="0.1" value="1.9"></div>
@@ -1559,6 +1560,9 @@ function fixMaterials(root){
         }
       }
       mat.side = THREE.DoubleSide;
+      // 預設忽略頂點色(採 Blender 哲學):部分 FBX 烘焙近黑頂點色,three.js 會把貼圖×頂點色壓成黑。
+      // 由「頂點色」開關 opt-in 開啟(pvDisp.vcolors)。縮圖用不到 pvDisp 時預設關閉。
+      if ('vertexColors' in mat) mat.vertexColors = (typeof pvDisp !== 'undefined' && pvDisp.vcolors) || false;
       mat.needsUpdate = true;
     });
   });
@@ -2109,7 +2113,7 @@ const pvUv = { on:false, matIndex:-1, slot:'map', checker:true, wire:true,
 
 /* 檢視輔助(Debug Flow Bar)狀態 */
 const pvDisp = {
-  grid:true, axes:false, skeleton:false, bbox:false, wire:false, stats:false, unlit:false,
+  grid:true, axes:false, skeleton:false, bbox:false, wire:false, stats:false, unlit:false, vcolors:false,
   bg:'solid', solidColor:'#101116',
   gridCount:20, gridCell:1, gridUnit:'m', gridAuto:true,
   gridColor:'#5a6273', gridCenter:'#8a93a5', gridOpacity:0.9,
@@ -2366,7 +2370,7 @@ function buildUnlitMat(src){
   m.name = src.name;
   m.map = src.map || null;
   if (src.color) m.color.copy(src.color);
-  m.vertexColors = !!src.vertexColors;
+  m.vertexColors = pvDisp.vcolors;          // 跟隨「頂點色」開關,而非原材質(避免黑色頂點色壓黑)
   m.transparent = !!src.transparent;
   m.opacity = (src.opacity != null) ? src.opacity : 1;
   m.alphaMap = src.alphaMap || null;
@@ -2400,6 +2404,17 @@ function clearMeshOverrides(){   // 還原所有 mesh 到原始材質、移除�
     o.children.filter(c=>c.name==='__wire').forEach(c=>{ o.remove(c); if (c.material) disposeMat(c.material); });
     if (o.userData._dispMat){ disposeMat(o.userData._dispMat); o.userData._dispMat = null; }
     if (o.userData._origMat){ o.material = o.userData._origMat; o.userData._origMat = null; }
+  });
+}
+function applyVertexColors(){    // 切換「頂點色」開關 → 套到目前模型的原始與派生材質
+  if (!pvModel) return;
+  const set = m => { if (m && 'vertexColors' in m){ m.vertexColors = pvDisp.vcolors; m.needsUpdate = true; } };
+  pvModel.traverse(o=>{
+    if (!o.isMesh || o.name === '__wire') return;
+    const om = o.userData._origMat || o.material;
+    (Array.isArray(om) ? om : [om]).forEach(set);
+    const cm = o.material;
+    (Array.isArray(cm) ? cm : [cm]).forEach(set);
   });
 }
 function applyMeshMode(){
@@ -3387,6 +3402,7 @@ $('pvBoxSel').addEventListener('change', e=>setBoxTarget(e.target.value==='all'?
 $('fcWire').addEventListener('click', ()=>toggleDisp('wire'));
 $('fcStats').addEventListener('click', ()=>toggleDisp('stats'));
 $('ltUnlit').addEventListener('change', e=>{ pvDisp.unlit = e.target.checked; applyMeshMode(); });
+$('ltVColor').addEventListener('change', e=>{ pvDisp.vcolors = e.target.checked; applyVertexColors(); });
 $('pvBgSel').addEventListener('change', e=>{
   pvDisp.bg = e.target.value; applyBackground();
   $('pvSolidRow').style.display = (pvDisp.bg === 'solid') ? 'flex' : 'none';
@@ -3396,7 +3412,7 @@ function togglePop(id){
   const willOpen = !$(id).classList.contains('open');
   VP_POPS.forEach(p=> $(p).classList.toggle('open', p===id && willOpen));
   const lightOpen = $('pvLightPop').classList.contains('open');
-  if (lightOpen) $('ltUnlit').checked = pvDisp.unlit;           // 開啟時同步無光照勾選狀態
+  if (lightOpen){ $('ltUnlit').checked = pvDisp.unlit; $('ltVColor').checked = pvDisp.vcolors; }   // 開啟時同步勾選狀態
   showLightGizmo(lightOpen);                                     // 開「光照」浮層時顯示主光位置指示器
 }
 $('pvGridBtn').addEventListener('click', ()=>togglePop('pvGridPop'));
