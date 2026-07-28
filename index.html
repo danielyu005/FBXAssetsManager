@@ -570,6 +570,8 @@
   }
   #pvTransport .tc{ font-family:var(--mono); font-size:11px; color:var(--muted); white-space:nowrap; }
   #pvSeek{ flex:1 1 auto; min-width:0; accent-color:var(--accent); cursor:pointer; }
+  #pvRate{ flex:0 0 120px; min-width:80px; accent-color:var(--accent); cursor:pointer; }
+  #pvRateLabel{ min-width:40px; text-align:right; }
   #pvClip{
     background:var(--panel); border:1px solid var(--line); color:var(--text);
     border-radius:6px; padding:3px 6px; font-size:11px; max-width:130px;
@@ -863,6 +865,9 @@
           <button class="ibtn" id="pvPlay" title="播放/暫停">❚❚</button>
           <span id="pvTime" class="tc">0.00 / 0.00s</span>
           <input type="range" id="pvSeek" min="0" max="1" step="0.001" value="0" title="拖動時間軸">
+          <span class="tc">速率</span>
+          <input type="range" id="pvRate" min="-10" max="10" step="0.5" value="1" title="播放速率 ×(負值倒放,0 暫停;雙擊還原 ×1)">
+          <span id="pvRateLabel" class="tc">×1.0</span>
           <select id="pvClip"></select>
         </div>
       </div>
@@ -2129,7 +2134,7 @@ function filteredAssets(){
 
 /* ───────── 預覽面板 ───────── */
 let previewRenderer, pvScene, pvCam, pvControls, pvMixer, pvClock;
-let pvModel = null, pvActions = [], pvCurAction = null, pvPlaying = true, pvClipIdx = 0;
+let pvModel = null, pvActions = [], pvCurAction = null, pvPlaying = true, pvClipIdx = 0, pvRate = 1;
 let pvKey=null, pvFill=null, pvHemi=null, pvWorldBox=null;
 const pvCamState = { fov:38, ortho:false, autoRotate:false };
 const pvLight = { exposure:1.05, key:1.9, hemi:1.2, fill:0.5, azimuth:35, elevation:45, distance:1.5 };
@@ -2648,6 +2653,11 @@ async function loadIntoPreview(a){
   renderTexPalette(a);
   if (pvUv.on){ buildUvControls(); uvFit(); }      // UV 檢視中換模型 → 重建控制項並重繪
 }
+function applyRate(){                      // 套用播放速率(mixer.timeScale;負值倒放、0 凍結)
+  if (pvMixer) pvMixer.timeScale = pvRate;
+  const lbl = $('pvRateLabel'); if (lbl) lbl.textContent = '×' + pvRate.toFixed(1);
+  const sl = $('pvRate'); if (sl && +sl.value !== pvRate) sl.value = pvRate;
+}
 function setupClips(model, clips){
   const playBtn = $('pvPlay'), sel = $('pvClip'), bar = $('pvTransport');
   pvActions = []; pvCurAction = null;
@@ -2660,6 +2670,7 @@ function setupClips(model, clips){
     bar.style.display = 'flex';
     pvPlaying = true; playBtn.textContent = '❚❚';
     playClipIndex(0);
+    applyRate();                          // 套用目前速率(mixer.timeScale + 標籤 + 滑桿)
     const trimmed = clips.filter(c=>c.__trimStart);
     if (trimmed.length){
       const maxTrim = Math.max(...trimmed.map(c=>c.__trimStart));
@@ -3496,6 +3507,8 @@ $('pvSeek').addEventListener('input', e=>{
 $('pvSeek').addEventListener('change', ()=>{ pvSeeking = false; });
 $('pvSeek').addEventListener('pointerdown', ()=>{ pvSeeking = true; });
 $('pvSeek').addEventListener('pointerup',   ()=>{ pvSeeking = false; });
+$('pvRate').addEventListener('input', e=>{ pvRate = parseFloat(e.target.value); applyRate(); });
+$('pvRate').addEventListener('dblclick', ()=>{ pvRate = 1; applyRate(); });   // 雙擊還原 ×1
 $('pvClose').addEventListener('click', closePreview);
 $('pvReload').addEventListener('click', ()=>{ if (G.selected >= 0) loadIntoPreview(G.assets[G.selected]); });
 
