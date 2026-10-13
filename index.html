@@ -325,7 +325,7 @@
   #pvVpWrap.uvmode #pvUvWrap{ display:block; }
   #pvVpWrap.uvmode #pvCanvas{ visibility:hidden; }          /* 3D 畫布隱藏,UV 覆蓋其上 */
   #pvVpWrap.uvmode #pvOverlay{ display:none; }
-  #pvVpWrap.uvmode #pvFlow > *:not(#pvViewSeg){ display:none; }   /* UV 模式只保留檢視切換 */
+  #pvVpWrap.uvmode #pvFlow{ display:none; }        /* UV 模式:3D 工具列整條隱藏(檢視切換移入 UV 工具列),避免蓋住 UV 工具列 */
   #pvUvCanvas{ position:absolute; inset:0; width:100%; height:100%; display:block; cursor:grab; touch-action:none; }
   #pvUvCanvas.grabbing{ cursor:grabbing; }
   #pvUvBar{
@@ -3699,6 +3699,8 @@ function setViewMode(mode){
   $('pvVpWrap').classList.toggle('uvmode', uv);
   $('pvView3D').classList.toggle('on', !uv);
   $('pvViewUV').classList.toggle('on', uv);
+  // 3D / UV 切換鈕跟著移到當前模式的工具列最前面
+  (uv ? $('pvUvBar') : $('pvFlow')).prepend($('pvViewSeg'));
   // 收起 3D 專用的浮層
   if (uv){ VP_POPS.forEach(p=> $(p).classList.remove('open')); showLightGizmo(false); }
   if (uv){ buildUvControls(); uvFit(); renderUV(); }
