@@ -852,6 +852,7 @@
           </div>
           <div id="pvCamPop" class="vp-pop">
             <div class="gp-row"><label>視角 FOV</label><input type="range" id="camFov" min="15" max="80" step="1" value="38"></div>
+            <div class="gp-row"><label>滾輪縮放 <span id="camZoomVal">1.0×</span></label><input type="range" id="camZoom" min="0.1" max="3" step="0.1" value="1" title="滑鼠滾輪縮放靈敏度(雙擊滑桿重設為 1.0×)"></div>
             <div class="gp-row"><label>正交投影</label><input type="checkbox" id="camOrtho"></div>
             <div class="gp-row"><label>自動旋轉</label><input type="checkbox" id="camAuto"></div>
             <div class="gp-sep"></div>
@@ -2175,7 +2176,8 @@ function filteredAssets(){
 let previewRenderer, pvScene, pvCam, pvControls, pvMixer, pvClock;
 let pvModel = null, pvActions = [], pvCurAction = null, pvPlaying = true, pvClipIdx = 0, pvRate = 1;
 let pvKey=null, pvFill=null, pvHemi=null, pvWorldBox=null;
-const pvCamState = { fov:38, ortho:false, autoRotate:false };
+const pvCamState = { fov:38, ortho:false, autoRotate:false, zoomSens:1 };
+try { const z = parseFloat(localStorage.getItem('fbxmgr.zoomSens') || ''); if (z > 0) pvCamState.zoomSens = z; } catch(_){}
 const pvLight = { exposure:1, tone:'aces', key:1.9, hemi:1.2, fill:0.5, azimuth:35, elevation:45, distance:1.5 };
 let pvRAF = 0, pvUpMode = 'auto', pvFrameInfo = null;
 let pvSeeking = false, pvMaterials = [], pendingSlot = null, pvSeekEl, pvTimeEl;
@@ -2365,6 +2367,41 @@ function applyCamState(){
   if (pvControls) pvControls.autoRotate = pvCamState.autoRotate;
   const f=$('camFov'), o=$('camOrtho'), r=$('camAuto');
   if (f) f.value = pvCamState.fov; if (o) o.checked = pvCamState.ortho; if (r) r.checked = pvCamState.autoRotate;
+  syncZoomSensUI();
+}
+function syncZoomSensUI(){
+  const z=$('camZoom'), v=$('camZoomVal');
+  if (z) z.value = pvCamState.zoomSens; if (v) v.textContent = pvCamState.zoomSens.toFixed(1) + '×';
+}
+function setZoomSens(val){
+  pvCamState.zoomSens = Math.max(0.1, Math.min(3, val || 1));
+  try { localStorage.setItem('fbxmgr.zoomSens', String(pvCamState.zoomSens)); } catch(_){}
+  syncZoomSensUI();
+}
+/* 滾輪縮放:取代 OrbitControls 內建的「每個 wheel 事件固定 5%」。
+   觸控板 / 平滑滾動滑鼠一次手勢會送出大量事件,固定比例會一下拉太近或太遠;
+   改為依 deltaY 量比例縮放,並依模型尺寸限制最近 / 最遠距離。 */
+function pvWheelZoom(e){
+  if (e.target !== $('pvCanvas') || !pvControls || !pvControls.enabled) return;
+  e.preventDefault(); e.stopPropagation();          // 擋下 OrbitControls 自己的 wheel 縮放
+  let dy = e.deltaY;
+  if (e.deltaMode === 1) dy *= 16; else if (e.deltaMode === 2) dy *= 400;   // 行 / 頁 → 像素
+  dy = Math.max(-100, Math.min(100, dy));           // 單一事件上限 ≈ 滑鼠一格
+  if (!dy) return;
+  const scale = Math.exp(dy * 0.001 * pvCamState.zoomSens);   // 一格(100)≈ 10% × 靈敏度
+  if (pvCam.isOrthographicCamera){
+    pvCam.zoom = Math.max(0.01, Math.min(pvCam.zoom / scale, 200));
+    pvCam.updateProjectionMatrix();
+  } else {
+    const target = pvControls.target;
+    const off = pvCam.position.clone().sub(target);
+    const dist = off.length() || 1;
+    const ref = pvFrameInfo ? pvFrameInfo.maxDim : dist;
+    const minD = ref * 0.02, maxD = (pvFrameInfo ? pvFrameInfo.dist : dist) * 20;
+    const nd = Math.max(minD, Math.min(dist * scale, maxD));
+    pvCam.position.copy(target).addScaledVector(off, nd / dist);
+  }
+  pvControls.update();
 }
 function setProjection(ortho){
   if (!pvCam) return;
@@ -3707,6 +3744,10 @@ $('pvLightBtn').addEventListener('click', ()=>togglePop('pvLightPop'));
 /* 攝影機 */
 $('camFov').addEventListener('input', e=>{ pvCamState.fov = parseFloat(e.target.value); if(!pvCamState.ortho){ pvCam.fov=pvCamState.fov; pvCam.updateProjectionMatrix(); } });
 $('camOrtho').addEventListener('change', e=>{ setProjection(e.target.checked); });
+$('camZoom').addEventListener('input', e=> setZoomSens(parseFloat(e.target.value)));
+$('camZoom').addEventListener('dblclick', ()=> setZoomSens(1));
+$('pvVpWrap').addEventListener('wheel', pvWheelZoom, { capture:true, passive:false });
+syncZoomSensUI();
 $('camAuto').addEventListener('change', e=>{ pvCamState.autoRotate=e.target.checked; if(pvControls) pvControls.autoRotate=e.target.checked; });
 document.querySelectorAll('#pvCamPop .vp-views button').forEach(b=> b.addEventListener('click', ()=>setView(b.dataset.v)));
 
