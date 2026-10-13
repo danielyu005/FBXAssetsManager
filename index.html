@@ -388,6 +388,12 @@
   #pvStats b{ color:var(--accent); }
   .gp-sep{ height:1px; background:var(--line); margin:9px 0; }
   .gp-row input[type=range]{ width:96px; accent-color:var(--accent); }
+  #pvLightPop .gp-row label{ white-space:nowrap; flex:0 0 auto; }
+  #pvLightPop .gp-row label{ min-width:3.6em; }
+  .gp-row .lt-pair{ display:flex; align-items:center; gap:6px; min-width:0; flex:1 1 auto; }
+  .gp-row .lt-pair input[type=range]{ width:auto; flex:1 1 60px; min-width:50px; }
+  .gp-row input.lt-num{ width:58px; padding:3px 5px; font-size:11.5px; }
+  .gp-row select#ltTone{ background:var(--panel-2); border:1px solid var(--line); color:var(--text); border-radius:5px; padding:3px 5px; font-size:11.5px; }
   #pvDimHud{
     display:none; position:absolute; left:10px; bottom:46px; z-index:3;
     background:rgba(8,9,12,.72); border:1px solid var(--line); border-radius:7px;
@@ -860,7 +866,9 @@
             <div class="gp-row"><label>無光照 Unlit</label><input type="checkbox" id="ltUnlit" title="只看貼圖 / 顏色,不受燈光與環境影響"></div>
             <div class="gp-row"><label>頂點色 Vertex Color</label><input type="checkbox" id="ltVColor" title="預設關閉:忽略模型烘焙的頂點色(避免近黑頂點色把貼圖壓黑)。勾選才顯示頂點色。"></div>
             <div class="gp-sep"></div>
-            <div class="gp-row"><label>曝光</label><input type="range" id="ltExp" min="0.3" max="2.5" step="0.05" value="1.05"></div>
+            <div class="gp-row"><label>色調映射</label><select id="ltTone" title="Tone Mapping:ACES 對比強、中間調偏暗;Linear / 無 較接近 Unity 預設(無後製)的亮度">
+              <option value="aces">ACES Filmic</option><option value="agx">AgX</option><option value="linear">Linear</option><option value="none">無</option></select></div>
+            <div class="gp-row"><label>曝光</label><input type="range" id="ltExp" min="0.3" max="2.5" step="0.05" value="1"></div>
             <div class="gp-row"><label>主光</label><input type="range" id="ltKey" min="0" max="5" step="0.1" value="1.9"></div>
             <div class="gp-row"><label>環境光</label><input type="range" id="ltHemi" min="0" max="4" step="0.1" value="1.2"></div>
             <div class="gp-row"><label>補光</label><input type="range" id="ltFill" min="0" max="3" step="0.1" value="0.5"></div>
@@ -1667,7 +1675,7 @@ function initThumbRenderer(){
   thumbRenderer.setPixelRatio(1);
   thumbRenderer.outputColorSpace = THREE.SRGBColorSpace;
   thumbRenderer.toneMapping = THREE.ACESFilmicToneMapping;
-  thumbRenderer.toneMappingExposure = 1.05;
+  thumbRenderer.toneMappingExposure = 1;
   thumbScene = new THREE.Scene();
   thumbCam = new THREE.PerspectiveCamera(35, 1, 0.01, 1e6);
   thumbHemi = new THREE.HemisphereLight(0xffffff, 0x33373f, 1.4); thumbScene.add(thumbHemi);
@@ -2168,7 +2176,7 @@ let previewRenderer, pvScene, pvCam, pvControls, pvMixer, pvClock;
 let pvModel = null, pvActions = [], pvCurAction = null, pvPlaying = true, pvClipIdx = 0, pvRate = 1;
 let pvKey=null, pvFill=null, pvHemi=null, pvWorldBox=null;
 const pvCamState = { fov:38, ortho:false, autoRotate:false };
-const pvLight = { exposure:1.05, key:1.9, hemi:1.2, fill:0.5, azimuth:35, elevation:45, distance:1.5 };
+const pvLight = { exposure:1, tone:'aces', key:1.9, hemi:1.2, fill:0.5, azimuth:35, elevation:45, distance:1.5 };
 let pvRAF = 0, pvUpMode = 'auto', pvFrameInfo = null;
 let pvSeeking = false, pvMaterials = [], pendingSlot = null, pvSeekEl, pvTimeEl;
 /* 2D UV / 貼圖檢視狀態 */
@@ -2387,8 +2395,13 @@ function setView(dir){
 }
 
 /* ── 光照控制 ── */
+const TONE_MAPS = { aces:THREE.ACESFilmicToneMapping, agx:THREE.AgXToneMapping, linear:THREE.LinearToneMapping, none:THREE.NoToneMapping };
 function applyLight(){
-  if (previewRenderer) previewRenderer.toneMappingExposure = pvLight.exposure;
+  if (previewRenderer){
+    previewRenderer.toneMappingExposure = pvLight.exposure;
+    const tm = TONE_MAPS[pvLight.tone] ?? THREE.ACESFilmicToneMapping;
+    previewRenderer.toneMapping = tm;              // 變更時 three 會自動重編材質 shader
+  }
   if (pvKey) pvKey.intensity = pvLight.key;
   if (pvHemi) pvHemi.intensity = pvLight.hemi;
   if (pvFill) pvFill.intensity = pvLight.fill;
@@ -2534,7 +2547,7 @@ function initPreview(){
   previewRenderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   previewRenderer.outputColorSpace = THREE.SRGBColorSpace;
   previewRenderer.toneMapping = THREE.ACESFilmicToneMapping;
-  previewRenderer.toneMappingExposure = 1.05;
+  previewRenderer.toneMappingExposure = pvLight.exposure;
   previewRenderer.shadowMap.enabled = false;
 
   pvScene = new THREE.Scene();
@@ -3702,6 +3715,23 @@ $('ltExp').addEventListener('input', e=>{ pvLight.exposure=parseFloat(e.target.v
 $('ltKey').addEventListener('input', e=>{ pvLight.key=parseFloat(e.target.value); applyLight(); });
 $('ltHemi').addEventListener('input', e=>{ pvLight.hemi=parseFloat(e.target.value); applyLight(); });
 $('ltFill').addEventListener('input', e=>{ pvLight.fill=parseFloat(e.target.value); applyLight(); });
+$('ltTone').addEventListener('change', e=>{ pvLight.tone = e.target.value; applyLight(); });
+// 每個光照滑桿旁加一個可直接輸入數字的欄位(雙向同步;輸入值可超出滑桿範圍,滑桿範圍會跟著放寬)
+document.querySelectorAll('#pvLightPop input[type=range]').forEach(rg=>{
+  const num = document.createElement('input');
+  num.type = 'number'; num.className = 'lt-num'; num.step = rg.step; num.value = rg.value; num.title = '直接輸入數值';
+  const pair = document.createElement('span'); pair.className = 'lt-pair';
+  rg.replaceWith(pair); pair.append(rg, num);
+  let typing = false;
+  rg.addEventListener('input', ()=>{ if (!typing) num.value = rg.value; });
+  num.addEventListener('input', ()=>{
+    const v = parseFloat(num.value); if (!Number.isFinite(v)) return;
+    if (v > +rg.max) rg.max = v;
+    if (v < +rg.min) rg.min = v;
+    rg.step = 'any'; rg.value = v;                 // step=any:避免滑桿把輸入值吸附到格點
+    typing = true; rg.dispatchEvent(new Event('input')); typing = false;
+  });
+});
 function updateLtInfo(){ const el=$('ltInfo'); if(el) el.textContent = `方位 ${pvLight.azimuth|0}° · 仰角 ${pvLight.elevation|0}° · 距離 ${pvLight.distance}×`; }
 $('ltAzim').addEventListener('input', e=>{ pvLight.azimuth=parseFloat(e.target.value); applyLight(); updateLtInfo(); });
 $('ltElev').addEventListener('input', e=>{ pvLight.elevation=parseFloat(e.target.value); applyLight(); updateLtInfo(); });
