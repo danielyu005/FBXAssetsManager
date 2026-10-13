@@ -3522,8 +3522,12 @@ function uvKeysOf(geom){                           // 該幾何所有 UV 組,依
   if (!geom || !geom.attributes) return [];
   return Object.keys(geom.attributes).filter(k=>UV_KEY_RE.test(k)).sort((a,b)=>uvIndexOf(a)-uvIndexOf(b));
 }
-function uvKeyFor(geom){                           // 依目前選定的 UV 組取 key(auto → 第一組)
-  if (pvUv.uvSet === 'auto') return firstUvKey(geom);
+const texUvKey = tex => { const ch = (tex && tex.channel) | 0; return ch ? 'uv'+ch : 'uv'; };   // 貼圖綁定的 UV 組
+function uvKeyFor(geom){                           // 依目前選定的 UV 組取 key(auto → 底圖綁定的那組,沒有則第一組)
+  if (pvUv.uvSet === 'auto'){
+    const tex = pickUvTexture(), tk = texUvKey(tex);
+    return (tex && geom && geom.attributes && geom.attributes[tk]) ? tk : firstUvKey(geom);
+  }
   return (geom && geom.attributes && geom.attributes[pvUv.uvSet]) ? pvUv.uvSet : null;
 }
 function meshesForMaterial(mat){                 // 取用此材質的網格(mat 為 null → 全部)
@@ -3555,8 +3559,8 @@ function buildUvControls(){
   matSel.innerHTML = opts;
   if (pvUv.matIndex >= pvMaterials.length) pvUv.matIndex = -1;
   matSel.value = pvUv.matIndex < 0 ? 'all' : String(pvUv.matIndex);
-  buildUvSlotOptions();
   buildUvSetOptions();
+  buildUvSlotOptions();
 }
 function buildUvSetOptions(){                      // UV 組下拉:列出所選材質網格上實際存在的 UV 組
   const sel = $('pvUvSet'); if (!sel) return;
@@ -3565,7 +3569,7 @@ function buildUvSetOptions(){                      // UV 組下拉:列出所選�
   const count = {};
   meshes.forEach(m=> uvKeysOf(m.geometry).forEach(k=> count[k] = (count[k]||0) + 1));
   const keys = Object.keys(count).sort((a,b)=>uvIndexOf(a)-uvIndexOf(b));
-  let opts = `<option value="auto">自動(第一組)</option>`;
+  let opts = `<option value="auto">自動(依底圖)</option>`;
   keys.forEach(k=>{
     const part = count[k] < meshes.length ? `(${count[k]}/${meshes.length} 網格)` : '';
     opts += `<option value="${k}">UV${uvIndexOf(k)}${part}</option>`;
@@ -3580,11 +3584,20 @@ function buildUvSlotOptions(){
   // 依所選材質列出「有貼圖」的槽位
   const mats = pvUv.matIndex < 0 ? pvMaterials : [pvMaterials[pvUv.matIndex]].filter(Boolean);
   const present = [];
-  TEX_SLOTS.forEach(s=>{ if (mats.some(m=>m && m[s.key] && m[s.key].isTexture)) present.push(s); });
+  TEX_SLOTS.forEach(s=>{
+    const t = mats.map(m=>m && m[s.key]).find(t=>t && t.isTexture);
+    if (t) present.push({ ...s, uvKey: texUvKey(t) });
+  });
+  // 指定 UV 組時,綁定該組的貼圖排前面,並優先選用
+  const want = pvUv.uvSet;
+  if (want !== 'auto') present.sort((a,b)=> (b.uvKey===want) - (a.uvKey===want));
   let opts = `<option value="none">無底圖(僅線框)</option>`;
-  present.forEach(s=> opts += `<option value="${s.key}">${esc(s.label)}</option>`);
+  present.forEach(s=> opts += `<option value="${s.key}">${esc(s.label)} · UV${uvIndexOf(s.uvKey)}</option>`);
   slotSel.innerHTML = opts;
-  if (!present.some(s=>s.key===pvUv.slot)) pvUv.slot = present.length ? present[0].key : 'none';
+  const cur = present.find(s=>s.key===pvUv.slot);
+  if (want !== 'auto' && present.some(s=>s.uvKey===want) && (!cur || cur.uvKey !== want))
+    pvUv.slot = present.find(s=>s.uvKey===want).key;          // 切到綁定此 UV 組的貼圖
+  else if (!cur && pvUv.slot !== 'none') pvUv.slot = present.length ? present[0].key : 'none';
   slotSel.value = pvUv.slot;
 }
 function pickUvTexture(){                          // 依所選材質 / 槽位取得底圖貼圖
@@ -3676,6 +3689,7 @@ function renderUV(){
   }
   const info = $('pvUvInfo');
   const setLbl = pvUv.uvSet === 'auto' ? '' : `UV${uvIndexOf(pvUv.uvSet)} · `;
+  if (texName_ && pvUv.uvSet !== 'auto' && texUvKey(tex) !== pvUv.uvSet) texName_ += `(貼圖綁定 UV${uvIndexOf(texUvKey(tex))})`;
   if (info) info.textContent = `${setLbl}${triCount ? fmtNum(triCount)+' 三角面 · ' : ''}${texName_ || '無底圖'} · 滾輪縮放`;
 }
 function uvFit(){ pvUv.zoom = 1; pvUv.panX = 0; pvUv.panY = 0; renderUV(); }
@@ -3693,9 +3707,9 @@ $('pvView3D').addEventListener('click', ()=> setViewMode('3d'));
 $('pvViewUV').addEventListener('click', ()=> setViewMode('uv'));
 $('pvUvMat').addEventListener('change', e=>{
   pvUv.matIndex = (e.target.value === 'all') ? -1 : (+e.target.value);
-  buildUvSlotOptions(); buildUvSetOptions(); renderUV();
+  buildUvSetOptions(); buildUvSlotOptions(); renderUV();
 });
-$('pvUvSet').addEventListener('change', e=>{ pvUv.uvSet = e.target.value; renderUV(); });
+$('pvUvSet').addEventListener('change', e=>{ pvUv.uvSet = e.target.value; buildUvSlotOptions(); renderUV(); });
 $('pvUvSlot').addEventListener('change', e=>{ pvUv.slot = e.target.value; renderUV(); });
 $('pvUvChecker').addEventListener('click', ()=>{ pvUv.checker = !pvUv.checker; $('pvUvChecker').classList.toggle('on', pvUv.checker); renderUV(); });
 $('pvUvWire').addEventListener('click', ()=>{ pvUv.wire = !pvUv.wire; $('pvUvWire').classList.toggle('on', pvUv.wire); renderUV(); });
