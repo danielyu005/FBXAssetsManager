@@ -625,6 +625,35 @@
   .matblk .mh{ display:flex; align-items:center; gap:7px; margin-bottom:8px; }
   .matblk .mn{ font-size:11.5px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
   .matblk .mt{ flex:0 0 auto; font-size:9px; font-family:var(--mono); color:var(--muted); border:1px solid var(--line); border-radius:4px; padding:1px 5px; }
+  /* 著色器選擇 + 參數編輯 */
+  .matblk .shsel{
+    flex:0 0 auto; font-size:10.5px; font-family:var(--mono); background:var(--panel); color:var(--text);
+    border:1px solid var(--line); border-radius:4px; padding:1px 4px; cursor:pointer;
+  }
+  .matblk .shsel:hover, .matblk .shedit:hover{ border-color:var(--accent); }
+  .matblk .shedit{
+    flex:0 0 auto; font-size:10.5px; background:var(--panel); color:var(--muted);
+    border:1px solid var(--line); border-radius:4px; padding:1px 7px; cursor:pointer; font-family:var(--sans);
+  }
+  .matblk .shedit.on{ background:var(--accent-dim); border-color:var(--accent); color:var(--text); }
+  .shpanel{
+    border:1px solid var(--line); border-radius:6px; background:var(--panel); padding:8px 9px; margin-bottom:9px;
+    display:grid; grid-template-columns:auto 1fr; gap:6px 10px; align-items:center; font-size:11px;
+  }
+  .shpanel .shk{ color:var(--muted); white-space:nowrap; }
+  .shpanel .shv{ display:flex; align-items:center; gap:6px; min-width:0; flex-wrap:wrap; }
+  .shpanel .shv .ax{ color:var(--dim); font-family:var(--mono); font-size:10px; }
+  .shpanel input[type=number]{
+    width:62px; background:var(--panel-2); color:var(--text); border:1px solid var(--line);
+    border-radius:4px; padding:2px 4px; font-family:var(--mono); font-size:11px;
+  }
+  .shpanel input[type=color]{ width:34px; height:20px; padding:0; border:1px solid var(--line); border-radius:4px; background:none; cursor:pointer; }
+  .shpanel input[type=range]{ flex:1 1 80px; min-width:60px; accent-color:var(--accent); }
+  .shpanel select{ background:var(--panel-2); color:var(--text); border:1px solid var(--line); border-radius:4px; padding:2px 4px; font-size:11px; }
+  .shpanel .shhex{ font-family:var(--mono); font-size:10.5px; color:var(--muted); }
+  .shpanel .shsec{ grid-column:1 / -1; font-size:10px; color:var(--dim); letter-spacing:.04em; border-top:1px solid #1f2128; padding-top:5px; margin-top:2px; }
+  .shpanel .shsec:first-child{ border-top:none; padding-top:0; margin-top:0; }
+  .shpanel .shfoot{ grid-column:1 / -1; display:flex; justify-content:flex-end; }
   .slots{ display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }
   .slot{ display:flex; flex-direction:column; align-items:center; gap:4px; }
   .sw2{
@@ -1891,6 +1920,7 @@ async function buildThumb(asset){
   if (asset.overrides){
     await applyOverrides(mats, asset.overrides);
   }
+  applySavedShaders(model, mats, asset.shaders);
   if (asset.upAxisAuto == null) asset.upAxisAuto = detectFBXUpAxis(buf) || 'Y';   // 偵測座標系
   if (effectiveUpAxis(asset) === 'Z') model.rotation.x = -Math.PI/2;
 
@@ -2623,6 +2653,7 @@ async function loadIntoPreview(a){
   pvMaterials = collectMaterials(model);
   await applyOverrides(pvMaterials, a.overrides);
   if (G.selected !== a.idx){ disposeObject(model); return; }   // 覆寫載入期間可能又被切換
+  applySavedShaders(model, pvMaterials, a.shaders);              // 套回著色器設定(Standard / Unlit + 參數)
   recountTextures();
   a.materialCount = pvMaterials.length;
   a.clips = (model.animations || []).map(c=>({ name:c.name || '', duration:+(c.duration||0).toFixed(3) }));
@@ -3184,9 +3215,14 @@ function renderMaterialsUI(missing){
   pvMaterials.forEach((mat, mi)=>{
     const type = (mat.type || 'Material').replace('Mesh','').replace('Material','') || 'Mat';
     const slots = TEX_SLOTS.filter(s => (s.key in mat));   // 依材質類型過濾有效槽位
+    const sh = shaderOf(mat), open = pvShEditOpen.has(mi);
+    let shOpts = sh ? '' : `<option value="" selected>${esc(type)}(原始)</option>`;
+    for (const k in SHADERS) shOpts += `<option value="${k}" ${sh===k?'selected':''}>${esc(SHADERS[k].label)}</option>`;
     html += `<div class="matblk"><div class="mh">
       <span class="mn" title="${esc(mat.name || ('材質 '+mi))}">${esc(mat.name || ('材質 '+mi))}</span>
-      <span class="mt">${esc(type)}</span></div><div class="slots">`;
+      <select class="shsel" data-mi="${mi}" title="著色器(Shader)">${shOpts}</select>
+      <button class="shedit ${open?'on':''}" data-mi="${mi}" title="編輯此材質的著色器參數">編輯</button></div>
+      ${open ? shaderPanelHTML(mat, mi) : ''}<div class="slots">`;
     slots.forEach(s=>{
       const tex = mat[s.key];
       const src = tex ? texToDataURL(tex) : null;
@@ -3220,6 +3256,7 @@ function renderMaterialsUI(missing){
   wrap.querySelectorAll('.clr').forEach(el=>{
     el.addEventListener('click', e=>{ e.stopPropagation(); clearSlot(+el.dataset.mi, el.dataset.slot); });
   });
+  bindShaderUI(wrap);
 }
 /* 隱藏的貼圖上載 input（重複使用） */
 const texInput = document.createElement('input');
@@ -3239,6 +3276,7 @@ texInput.addEventListener('change', async ()=>{
     mat[slot] = tex;
     if (slot === 'alphaMap'){ mat.transparent = true; }
     mat.needsUpdate = true;
+    applyShaderParams(mat, pvMaterials);                 // 新貼圖套上目前的 Tiling / Offset / UV ID
     recordOverride(mi, slot, { name:file.name, cs, ext, data });   // 記住此覆寫
     recountTextures();
     renderMaterialsUI(G.curAsset ? G.curAsset.missing : []);
@@ -3290,6 +3328,7 @@ async function applyTexToSlot(mi, slot, cs, tex){
     mat[slot] = t;
     if (slot === 'alphaMap'){ mat.transparent = true; }
     mat.needsUpdate = true;
+    applyShaderParams(mat, pvMaterials);                 // 新貼圖套上目前的 Tiling / Offset / UV ID
     recordOverride(mi, slot, { name:tex.name, cs, ext:tex.ext, ref:tex.path });   // 只存路徑引用,不內嵌貼圖
     recountTextures();
     renderMaterialsUI(G.curAsset ? G.curAsset.missing : []);
@@ -3377,6 +3416,199 @@ function recountTextures(){
   G.curAsset.texCount = set.size;
   if (pvDisp.unlit && !pvDisp.wire) applyMeshMode();   // unlit 中換貼圖 → 重建 unlit 材質以反映
   updateCard(G.curAsset);
+}
+/* ── 著色器(Shader)切換 + 參數 ──
+   Standard = 包裝 MeshPhongMaterial(受光照、含高光);Unlit = MeshBasicMaterial(不受光照)。
+   參數存於 material.userData.shaderCfg 與 asset.shaders[mi](隨專案保存,切換模型 / 載入專案時套回)。
+   未編輯過的材質不會被改動(沒有 shaderCfg 就不套用)。 */
+const SHADERS = {
+  standard:{ label:'Standard', make:()=>new THREE.MeshPhongMaterial() },
+  unlit:   { label:'Unlit',    make:()=>new THREE.MeshBasicMaterial() },
+};
+const pvShEditOpen = new Set();                    // 參數面板展開中的材質索引
+function shaderOf(mat){
+  if (!mat) return null;
+  if (mat.isMeshBasicMaterial) return 'unlit';
+  if (mat.isMeshPhongMaterial) return 'standard';
+  return null;                                     // 其他類型(Lambert 等)→ 顯示為「原始」
+}
+const colorHex = (c, fb) => '#' + (c && c.isColor ? c.getHexString() : fb);
+function defaultShaderCfg(mat){                    // 由材質目前狀態推得預設參數
+  const t = mat && mat.map;
+  return {
+    shader: shaderOf(mat) || 'standard',
+    tiling: [t ? t.repeat.x : 1, t ? t.repeat.y : 1],
+    offset: [t ? t.offset.x : 0, t ? t.offset.y : 0],
+    uv: t ? (t.channel | 0) : 0,
+    tint: colorHex(mat && mat.color, 'ffffff'),
+    specular: colorHex(mat && mat.specular, '111111'),
+    shininess: (mat && mat.shininess != null) ? mat.shininess : 30,
+  };
+}
+const getShaderCfg = mat => (mat.userData && mat.userData.shaderCfg) || defaultShaderCfg(mat);
+function applyShaderParams(mat, mats){             // 把 shaderCfg 套到材質與其所有貼圖
+  const c = mat && mat.userData && mat.userData.shaderCfg; if (!c) return;
+  if (mat.color) mat.color.set(c.tint);
+  if (mat.isMeshPhongMaterial){
+    if (mat.specular) mat.specular.set(c.specular);
+    mat.shininess = Math.max(0, +c.shininess || 0);
+  }
+  const ch = c.uv | 0;
+  let progChange = false;
+  TEX_SLOTS.forEach(s=>{
+    let t = mat[s.key]; if (!t || !t.isTexture) return;
+    // 與其他材質共用的貼圖 → 複製一份(共用影像),避免 Tiling / UV ID 影響到別的材質
+    if ((mats || []).some(m=> m && m !== mat && TEX_SLOTS.some(s2=> m[s2.key] === t))){
+      t = t.clone(); mat[s.key] = t; t.needsUpdate = true; progChange = true;
+    }
+    t.repeat.set(+c.tiling[0], +c.tiling[1]);
+    t.offset.set(+c.offset[0], +c.offset[1]);
+    if (t.wrapS !== THREE.RepeatWrapping || t.wrapT !== THREE.RepeatWrapping){
+      t.wrapS = t.wrapT = THREE.RepeatWrapping; t.needsUpdate = true;
+    }
+    if ((t.channel | 0) !== ch){ t.channel = ch; progChange = true; }
+  });
+  if (progChange) mat.needsUpdate = true;
+}
+function convertMaterial(root, mats, mi, shader){  // 切換材質的著色器(建立新材質並替換所有引用)
+  const src = mats[mi];
+  if (!src || !SHADERS[shader] || shaderOf(src) === shader) return src;
+  const dst = SHADERS[shader].make();
+  dst.name = src.name;
+  // 貼圖:目標支援的槽位直接搬過去,不支援的暫存,切回時還原
+  const stash = { ...((src.userData && src.userData._texStash) || {}) };
+  TEX_SLOTS.forEach(s=>{
+    const t = src[s.key]; if (!t) return;
+    if (s.key in dst) dst[s.key] = t; else stash[s.key] = t;
+  });
+  for (const k in stash){ if ((k in dst) && !dst[k]){ dst[k] = stash[k]; delete stash[k]; } }
+  dst.userData._texStash = stash;
+  ['transparent','opacity','alphaTest','side','vertexColors','wireframe','aoMapIntensity','depthWrite']
+    .forEach(k=>{ if ((k in src) && (k in dst)) dst[k] = src[k]; });
+  if (src.normalScale && dst.normalScale) dst.normalScale.copy(src.normalScale);
+  if (src.emissive && dst.emissive) dst.emissive.copy(src.emissive);
+  const cfg = { ...getShaderCfg(src), shader };
+  if (shader === 'unlit') cfg.tint = '#ffffff';    // Unlit:Tint 預設白色
+  dst.userData.shaderCfg = cfg;
+  // 替換模型中所有引用(含渲染模式暫存的原始材質)
+  const swap = m => (m === src ? dst : m);
+  const swapAny = m => (Array.isArray(m) ? m.map(swap) : swap(m));
+  if (root) root.traverse(o=>{
+    if (!o.isMesh || o.name === '__wire') return;
+    if (o.userData._origMat){
+      const same = o.material === o.userData._origMat;
+      o.userData._origMat = swapAny(o.userData._origMat);
+      if (same) o.material = o.userData._origMat;
+    } else o.material = swapAny(o.material);
+  });
+  mats[mi] = dst;
+  src.dispose();
+  applyShaderParams(dst, mats);
+  return dst;
+}
+function applySavedShaders(root, mats, shaders){   // 載入時套回已保存的著色器設定
+  if (!shaders) return;
+  for (const k in shaders){
+    const mi = +k, cfg = shaders[k];
+    if (!mats[mi] || !cfg || !SHADERS[cfg.shader]) continue;
+    convertMaterial(root, mats, mi, cfg.shader);
+    mats[mi].userData.shaderCfg = { ...cfg };
+    applyShaderParams(mats[mi], mats);
+  }
+}
+function saveShaderCfg(mi){                        // 記錄到資產(專案保存用)
+  const a = G.curAsset, mat = pvMaterials[mi]; if (!a || !mat) return;
+  a.shaders = a.shaders || {};
+  a.shaders[mi] = { ...mat.userData.shaderCfg };
+  markDirty();
+}
+function afterShaderChange(){                      // 讓其他視圖反映材質變更
+  if (pvModel) applyMeshMode();
+  recountTextures();
+  if (pvUv.on){ buildUvControls(); renderUV(); }
+}
+function shaderPanelHTML(mat, mi){
+  const c = getShaderCfg(mat), sh = shaderOf(mat) || 'standard';
+  const keys = new Set();
+  meshesForMaterial(mat).forEach(m=> uvKeysOf(m.geometry).forEach(k=> keys.add(k)));
+  const ids = [...keys].map(uvIndexOf).sort((a,b)=>a-b);
+  if (!ids.includes(c.uv | 0)) ids.push(c.uv | 0);
+  const num = (f, v, step) => `<input type="number" data-f="${f}" step="${step}" value="${+(+v).toFixed(4)}">`;
+  const col = (f, v) => `<input type="color" data-f="${f}" value="${v}"><span class="shhex" data-hex="${f}">${v.toUpperCase()}</span>`;
+  let h = `<div class="shpanel" data-mi="${mi}">
+    <div class="shsec">${esc(SHADERS[sh].label)} · Main Texture</div>
+    <span class="shk">Tiling</span><span class="shv"><span class="ax">X</span>${num('tx', c.tiling[0], 0.1)}<span class="ax">Y</span>${num('ty', c.tiling[1], 0.1)}</span>
+    <span class="shk">Offset</span><span class="shv"><span class="ax">X</span>${num('ox', c.offset[0], 0.01)}<span class="ax">Y</span>${num('oy', c.offset[1], 0.01)}</span>
+    <span class="shk">UV ID</span><span class="shv"><select data-f="uv" title="貼圖取樣使用哪一組 UV">${
+      ids.map(i=>`<option value="${i}" ${i===(c.uv|0)?'selected':''}>UV${i}${keys.has(i?'uv'+i:'uv')?'':'(網格無此組)'}</option>`).join('')}</select></span>
+    <span class="shk">Tint Color</span><span class="shv">${col('tint', c.tint)}</span>`;
+  if (sh === 'standard'){
+    h += `<div class="shsec">Specular</div>
+    <span class="shk">Specular</span><span class="shv">${col('specular', c.specular)}</span>
+    <span class="shk">Shininess</span><span class="shv"><input type="range" data-f="shininess" min="0" max="200" step="1" value="${c.shininess}">${num('shininessN', c.shininess, 1)}</span>`;
+  }
+  h += `<div class="shfoot"><button class="shedit" data-reset="${mi}" title="還原此著色器的預設參數">重設預設</button></div></div>`;
+  return h;
+}
+function bindShaderUI(wrap){
+  wrap.querySelectorAll('.shsel').forEach(el=>{
+    el.addEventListener('change', ()=>{
+      const mi = +el.dataset.mi, shader = el.value;
+      if (!SHADERS[shader]) return;
+      convertMaterial(pvModel, pvMaterials, mi, shader);
+      saveShaderCfg(mi);
+      afterShaderChange();
+      renderMaterialsUI(G.curAsset ? G.curAsset.missing : []);
+      toast(`已切換為 ${SHADERS[shader].label} 著色器`);
+    });
+  });
+  wrap.querySelectorAll('.shedit[data-mi]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const mi = +el.dataset.mi;
+      if (pvShEditOpen.has(mi)) pvShEditOpen.delete(mi); else pvShEditOpen.add(mi);
+      renderMaterialsUI(G.curAsset ? G.curAsset.missing : []);
+    });
+  });
+  wrap.querySelectorAll('.shpanel').forEach(panel=>{
+    const mi = +panel.dataset.mi;
+    const update = (commit)=>{
+      const mat = pvMaterials[mi]; if (!mat) return;
+      const c = { ...getShaderCfg(mat) };
+      const v = f => panel.querySelector(`[data-f="${f}"]`);
+      const n = (f, fb) => { const x = parseFloat(v(f) && v(f).value); return Number.isFinite(x) ? x : fb; };
+      c.shader = shaderOf(mat) || 'standard';
+      c.tiling = [n('tx', 1), n('ty', 1)];
+      c.offset = [n('ox', 0), n('oy', 0)];
+      c.uv = n('uv', 0) | 0;
+      c.tint = v('tint').value;
+      if (v('specular')) c.specular = v('specular').value;
+      if (v('shininess')) c.shininess = n('shininess', 30);
+      panel.querySelectorAll('[data-hex]').forEach(s=>{ const i = v(s.dataset.hex); if (i) s.textContent = i.value.toUpperCase(); });
+      const uvChanged = (c.uv | 0) !== (getShaderCfg(mat).uv | 0);
+      mat.userData.shaderCfg = c;
+      applyShaderParams(mat, pvMaterials);
+      if (commit){ saveShaderCfg(mi); if (uvChanged && pvUv.on){ buildUvControls(); renderUV(); } }
+    };
+    panel.querySelectorAll('input,select').forEach(inp=>{
+      inp.addEventListener('input', ()=>{
+        const f = inp.dataset.f;                   // Shininess 滑桿 ↔ 數字同步
+        if (f === 'shininess') panel.querySelector('[data-f="shininessN"]').value = inp.value;
+        if (f === 'shininessN') panel.querySelector('[data-f="shininess"]').value = inp.value;
+        update(false);
+      });
+      inp.addEventListener('change', ()=> update(true));
+    });
+    const rs = panel.querySelector('[data-reset]');
+    if (rs) rs.addEventListener('click', ()=>{
+      const mat = pvMaterials[mi]; if (!mat) return;
+      const sh = shaderOf(mat) || 'standard';
+      mat.userData.shaderCfg = { shader:sh, tiling:[1,1], offset:[0,0], uv:0, tint:'#ffffff', specular:'#111111', shininess:30 };
+      applyShaderParams(mat, pvMaterials);
+      saveShaderCfg(mi);
+      afterShaderChange();
+      renderMaterialsUI(G.curAsset ? G.curAsset.missing : []);
+    });
+  });
 }
 function texName(tex){
   if (tex.image && tex.image.src){
@@ -4311,7 +4543,8 @@ function collectProjectData(){
     const hasStd = !!a.standard;
     const hasHist = a.standardHistory && a.standardHistory.length;
     const hasVer = a.verifications && a.verifications.length;
-    if (!hasOv && !hasAxis && !hasNote && !hasLog && !hasCat && !hasStd && !hasHist && !hasVer) return;
+    const hasShd = a.shaders && Object.keys(a.shaders).length;
+    if (!hasOv && !hasAxis && !hasNote && !hasLog && !hasCat && !hasStd && !hasHist && !hasVer && !hasShd) return;
     const rec = {};
     if (hasAxis) rec.upAxis = a.upAxis;
     if (hasOv)   rec.overrides = a.overrides;
@@ -4321,6 +4554,7 @@ function collectProjectData(){
     if (hasStd)  rec.standard = a.standard;
     if (hasHist) rec.standardHistory = a.standardHistory;
     if (hasVer)  rec.verifications = a.verifications;
+    if (hasShd)  rec.shaders = a.shaders;
     assets[a.path] = rec;
   });
   return {
@@ -4749,6 +4983,7 @@ function applyPendingProject(){
     const rec = G.pendingProject[a.path];
     if (!rec) return;
     if (rec.overrides) a.overrides = rec.overrides;
+    if (rec.shaders)   a.shaders = rec.shaders;
     if (rec.upAxis)    a.upAxis = rec.upAxis;
     if (rec.note)      a.note = rec.note;
     if (rec.category)  a.category = rec.category;
