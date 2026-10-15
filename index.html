@@ -4256,7 +4256,7 @@ function renderUV(){
 /* ───────── 面選取:UV 視窗開啟時,滑鼠經過的三角面在 3D / UV 同步高亮,選取的面以紅色邊線標記 ─────────
    點選模式:單擊選面(Shift+單擊 = 加選 / 減選切換)
    框選模式:拖曳框選(Shift = 加選、Ctrl = 減選);3D 以 Alt+左鍵 旋轉、UV 以右鍵 / 中鍵 平移
-   框選以三角面中心判定,3D 會選到被遮住的面(穿透選取)。 */
+   框選:3D 只選框內看得到的面(ID 緩衝判定),UV 以三角面中心落在框內判定。 */
 const pvPick = { hover:null, sel:new Map(), pending3D:null, rc:new THREE.Raycaster(), hi3D:null, selVer:0, builtVer:-1,
                  shift:false, ptr:null };
 const pickKey = p => p.mesh.uuid + ':' + p.tri;
@@ -4370,25 +4370,59 @@ function process3DPick(){                          // 每幀最多一次 raycast
   const p = hit ? { mesh:hit.object, tri:hit.faceIndex } : null;
   if (ev.click) clickSelect(p, ev.shift); else setPickHover(p);
 }
-function boxSelect3D(x0, y0, x1, y1, op){          // client 座標矩形 → 中心點投影落在框內的三角面
-  const r = $('pvCanvas').getBoundingClientRect(); if (!r.width || !r.height || !pvModel) return;
-  const nx0 = (Math.min(x0,x1) - r.left)/r.width*2 - 1, nx1 = (Math.max(x0,x1) - r.left)/r.width*2 - 1;
-  const ny0 = -(Math.max(y0,y1) - r.top)/r.height*2 + 1, ny1 = -(Math.min(y0,y1) - r.top)/r.height*2 + 1;
-  pvModel.updateMatrixWorld(true); pvCam.updateMatrixWorld();
-  const vp = new THREE.Matrix4().multiplyMatrices(pvCam.projectionMatrix, pvCam.matrixWorldInverse);
-  const out = [];
-  pickMeshes3D().forEach(mesh=>{
+/* 3D 框選:只選「看得到」的面。
+   把模型(含蒙皮當下姿勢)轉成每個三角面一個 ID 顏色的三角形湯,只渲染框選範圍(setViewOffset)到離屏 RenderTarget,
+   讀回像素:有出現在框內任何像素的面 = 可見面。 */
+let pvIdRT = null;
+function boxSelect3D(x0, y0, x1, y1, op){
+  const cv = $('pvCanvas'), r = cv.getBoundingClientRect();
+  if (!r.width || !r.height || !pvModel || !previewRenderer) return;
+  const k = cv.width / r.width;                    // client 像素 → 繪圖緩衝像素(含 devicePixelRatio / body zoom)
+  const fw = cv.width, fh = cv.height;
+  const bx = Math.max(0, Math.floor((Math.min(x0,x1) - r.left)*k)), by = Math.max(0, Math.floor((Math.min(y0,y1) - r.top)*k));
+  const bw = Math.min(fw - bx, Math.ceil(Math.abs(x1-x0)*k)), bh = Math.min(fh - by, Math.ceil(Math.abs(y1-y0)*k));
+  if (bw < 1 || bh < 1) return;
+  pvModel.updateMatrixWorld(true);
+  // 三角形湯:世界座標位置 + ID 顏色(face id + 1,24-bit RGB)
+  const meshes = pickMeshes3D(), faces = [];
+  let total = 0; meshes.forEach(m=> total += triCountOf(m.geometry));
+  if (!total || total >= 0xffffff) return;
+  const pos = new Float32Array(total*9), col = new Uint8Array(total*9);
+  let f = 0;
+  meshes.forEach(mesh=>{
     if (mesh.isSkinnedMesh && mesh.skeleton) mesh.skeleton.update();
     const g = mesh.geometry, n = g.attributes.position.count, W = new Float32Array(n*3);
     for (let i=0;i<n;i++){ mesh.getVertexPosition(i, _pkv).applyMatrix4(mesh.matrixWorld); W[i*3]=_pkv.x; W[i*3+1]=_pkv.y; W[i*3+2]=_pkv.z; }
     const idx = g.index, tc = triCountOf(g);
-    for (let t=0;t<tc;t++){
-      const a = (idx?idx.getX(t*3):t*3)*3, b = (idx?idx.getX(t*3+1):t*3+1)*3, c = (idx?idx.getX(t*3+2):t*3+2)*3;
-      _pkv.set((W[a]+W[b]+W[c])/3, (W[a+1]+W[b+1]+W[c+1])/3, (W[a+2]+W[b+2]+W[c+2])/3).applyMatrix4(vp);
-      if (_pkv.z < -1 || _pkv.z > 1) continue;
-      if (_pkv.x >= nx0 && _pkv.x <= nx1 && _pkv.y >= ny0 && _pkv.y <= ny1) out.push({ mesh, tri:t });
+    for (let t=0;t<tc;t++, f++){
+      const id = f + 1, cr = id & 255, cg = (id >> 8) & 255, cb = (id >> 16) & 255;
+      for (let v=0; v<3; v++){
+        const vi = (idx ? idx.getX(t*3+v) : t*3+v)*3, o = f*9 + v*3;
+        pos[o] = W[vi]; pos[o+1] = W[vi+1]; pos[o+2] = W[vi+2];
+        col[o] = cr; col[o+1] = cg; col[o+2] = cb;
+      }
+      faces.push({ mesh, tri:t });
     }
   });
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3, true));
+  const mat = new THREE.MeshBasicMaterial({ vertexColors:true, side:THREE.DoubleSide, toneMapped:false });
+  const scene = new THREE.Scene(); const soup = new THREE.Mesh(geo, mat); soup.frustumCulled = false; scene.add(soup);
+  if (!pvIdRT) pvIdRT = new THREE.WebGLRenderTarget(1, 1, { minFilter:THREE.NearestFilter, magFilter:THREE.NearestFilter, generateMipmaps:false });
+  pvIdRT.setSize(bw, bh);
+  // 只渲染框選範圍,並暫存 / 還原渲染器狀態
+  const rd = previewRenderer, prevRT = rd.getRenderTarget(), prevClear = rd.getClearColor(new THREE.Color()), prevAlpha = rd.getClearAlpha();
+  pvCam.setViewOffset(fw, fh, bx, by, bw, bh);
+  rd.setRenderTarget(pvIdRT); rd.setClearColor(0x000000, 1); rd.clear(); rd.render(scene, pvCam);
+  const px = new Uint8Array(bw*bh*4);
+  rd.readRenderTargetPixels(pvIdRT, 0, 0, bw, bh, px);
+  rd.setRenderTarget(prevRT); rd.setClearColor(prevClear, prevAlpha);
+  pvCam.clearViewOffset();
+  geo.dispose(); mat.dispose();
+  const seen = new Set();
+  for (let i=0;i<px.length;i+=4){ const id = px[i] | (px[i+1] << 8) | (px[i+2] << 16); if (id) seen.add(id - 1); }
+  const out = []; seen.forEach(fi=>{ if (faces[fi]) out.push(faces[fi]); });
   applySel(out, op);
 }
 const boxOp = e => e.shiftKey ? 'add' : ((e.ctrlKey || e.metaKey) ? 'sub' : 'set');
