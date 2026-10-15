@@ -327,6 +327,9 @@
   #pvViews.dragging canvas{ pointer-events:none; }
   #pvUvCanvas{ position:absolute; inset:0; width:100%; height:100%; display:block; cursor:grab; touch-action:none; }
   #pvUvCanvas.grabbing{ cursor:grabbing; }
+  #pvUvHi{ position:absolute; inset:0; width:100%; height:100%; display:block; pointer-events:none; }   /* 面選取高亮層 */
+  #pvUvWrap.empty #pvUvHi{ display:none; }
+  #pvUvPickInfo{ color:var(--text); font-family:var(--mono); font-size:10.5px; }
   #pvUvBar{
     position:absolute; top:0; left:0; right:0; z-index:3;
     display:flex; align-items:center; gap:6px; flex-wrap:wrap;
@@ -914,15 +917,18 @@
         <div id="pvUvGrip" title="拖曳調整 3D / UV 比例(雙擊還原)"></div>
           <div id="pvUvWrap">
             <canvas id="pvUvCanvas"></canvas>
+            <canvas id="pvUvHi"></canvas>
             <div id="pvUvBar">
               <span class="flabel">材質</span><select id="pvUvMat" title="選擇材質"></select>
               <span class="flabel">通道</span><select id="pvUvSlot" title="以哪張貼圖當底圖"></select>
               <span class="flabel">UV</span><select id="pvUvSet" title="切換要顯示的 UV 組(UV0 / UV1 / …)"></select>
               <button class="fchip on" id="pvUvChecker" title="棋盤格背景">棋盤格</button>
               <button class="fchip on" id="pvUvWire" title="UV 線框">UV線框</button>
+              <button class="fchip on" id="pvUvPick" title="面選取:滑鼠經過的三角面高亮,點擊以紅色邊線標記(3D / UV 同步)">面選取</button>
               <button class="fchip" id="pvUvFit" title="重置縮放 / 平移">重置</button>
               <span class="fsep"></span>
               <span class="flabel" id="pvUvInfo">滾輪縮放 · 拖曳平移</span>
+              <span id="pvUvPickInfo"></span>
             </div>
             <div id="pvUvEmpty">此模型沒有可顯示的 UV 座標。</div>
           </div>
@@ -2209,7 +2215,7 @@ const pvLight = { exposure:1, tone:'aces', key:1.9, hemi:1.2, fill:0.5, azimuth:
 let pvRAF = 0, pvUpMode = 'auto', pvFrameInfo = null;
 let pvSeeking = false, pvMaterials = [], pendingSlot = null, pvSeekEl, pvTimeEl;
 /* 2D UV / 貼圖檢視狀態 */
-const pvUv = { on:false, matIndex:-1, slot:'map', uvSet:'auto', checker:true, wire:true,
+const pvUv = { on:false, pick:true, xf:null, matIndex:-1, slot:'map', uvSet:'auto', checker:true, wire:true,
   zoom:1, panX:0, panY:0, drag:null, ctx:null, lastW:0, lastH:0 };
 
 /* 檢視輔助(Debug Flow Bar)狀態 */
@@ -2566,6 +2572,7 @@ function makeWireOverlay(mesh){  // 疊在 mesh 上的 Mesh 網格線;骨架模�
 }
 function clearMeshOverrides(){   // 還原所有 mesh 到原始材質、移除網格線 / 法線覆蓋(切換 / 清除模型前呼叫)
   disposeNormals(true);
+  clearPick();
   if (!pvModel) return;
   pvModel.traverse(o=>{
     if (!o.isMesh || o.name === '__wire') return;
@@ -2824,6 +2831,10 @@ function pvLoop(){
   }
   pvControls.update();
   if (pvNrm && pvNrm.lines && pvNrm.dynamic) updateNormals();   // 法線跟隨動畫 / Up 軸
+  if (pickActive()){                                // 面選取:處理 hover raycast,並讓高亮跟隨動畫
+    if (pvPick.pending3D) process3DPick();
+    if (pvPick.hover || pvPick.sel) update3DPick();
+  }
   pvCam.updateMatrixWorld();
   if (pvBox && pvBox.visible) updateDimLabels();   // 在相機更新後投影,標籤才不會延遲飄移
   previewRenderer.render(pvScene, pvCam);
@@ -4154,6 +4165,7 @@ function renderUV(){
   if (!wrap || !canvas || !pvUv.on) return;
   const has = modelHasAnyUV();
   wrap.classList.toggle('empty', !has);
+  pvUv.xf = null;
   if (!has) return;
   const cssW = wrap.clientWidth, cssH = wrap.clientHeight;
   if (!cssW || !cssH) return;
@@ -4171,6 +4183,7 @@ function renderUV(){
   const oy = (cssH - side)/2 + pvUv.panY;
   const U = u => ox + u*side;
   const V = v => oy + (1-v)*side;                 // v=0 在下
+  pvUv.xf = { ox, oy, side, dpr, w:cssW, h:cssH };  // 供面選取高亮層 / 點選換算
 
   // 背景:棋盤格
   if (pvUv.checker){
@@ -4220,7 +4233,117 @@ function renderUV(){
   const setLbl = pvUv.uvSet === 'auto' ? '' : `UV${uvIndexOf(pvUv.uvSet)} · `;
   if (texName_ && pvUv.uvSet !== 'auto' && texUvKey(tex) !== pvUv.uvSet) texName_ += `(貼圖綁定 UV${uvIndexOf(texUvKey(tex))})`;
   if (info) info.textContent = `${setLbl}${triCount ? fmtNum(triCount)+' 三角面 · ' : ''}${texName_ || '無底圖'} · 滾輪縮放`;
+  drawUvHi();
 }
+
+/* ───────── 面選取:UV 視窗開啟時,滑鼠經過的三角面在 3D / UV 同步高亮,點擊以紅色邊線標記 ───────── */
+const pvPick = { hover:null, sel:null, pending3D:null, rc:new THREE.Raycaster(), hi3D:null };
+const pickEq = (a,b)=> a === b || !!(a && b && a.mesh === b.mesh && a.tri === b.tri);
+function triVerts(mesh, tri){
+  const idx = mesh.geometry.index, i = tri*3;
+  return idx ? [idx.getX(i), idx.getX(i+1), idx.getX(i+2)] : [i, i+1, i+2];
+}
+const pickActive = ()=> pvUv.on && pvUv.pick;
+function setPickHover(h){ if (pickEq(h, pvPick.hover)) return; pvPick.hover = h; pickChanged(); }
+function setPickSel(p){ pvPick.sel = p; pickChanged(); }
+function clearPick(){ pvPick.hover = pvPick.sel = pvPick.pending3D = null; pickChanged(); }
+function pickChanged(){ drawUvHi(); update3DPick(); updatePickInfo(); }
+function updatePickInfo(){
+  const el = $('pvUvPickInfo'); if (!el) return;
+  const f = p => `面 #${p.tri}(${p.mesh.name || 'mesh'})`, h = pvPick.hover, sl = pvPick.sel;
+  el.textContent = !pickActive() ? '' : [h && f(h), sl && ('已選 ' + f(sl))].filter(Boolean).map(t=>'· '+t).join(' ');
+}
+// 3D:半透明填色(hover)+ 紅色邊線(點選),逐幀依蒙皮位置更新
+function ensurePick3D(){
+  if (pvPick.hi3D || !pvScene) return pvPick.hi3D;
+  const tri = ()=>{ const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(9), 3)); return g; };
+  const fill = new THREE.Mesh(tri(), new THREE.MeshBasicMaterial({ color:0x4fc3ff, transparent:true, opacity:0.5, side:THREE.DoubleSide,
+    depthWrite:false, polygonOffset:true, polygonOffsetFactor:-2, polygonOffsetUnits:-2 }));
+  const edge = new THREE.LineLoop(tri(), new THREE.LineBasicMaterial({ color:0xff3030, depthTest:false, transparent:true }));
+  fill.renderOrder = 10; edge.renderOrder = 11;
+  [fill, edge].forEach(o=>{ o.name = '__pick'; o.frustumCulled = false; o.visible = false; pvScene.add(o); });
+  return (pvPick.hi3D = { fill, edge });
+}
+const _pkv = new THREE.Vector3();
+function writePickTri(obj, p){
+  const a = obj.geometry.attributes.position;
+  triVerts(p.mesh, p.tri).forEach((vi,k)=>{ p.mesh.getVertexPosition(vi, _pkv).applyMatrix4(p.mesh.matrixWorld); a.setXYZ(k, _pkv.x, _pkv.y, _pkv.z); });
+  a.needsUpdate = true;
+}
+function update3DPick(){
+  const h = ensurePick3D(); if (!h) return;
+  const on = pickActive();
+  h.fill.visible = !!(on && pvPick.hover); h.edge.visible = !!(on && pvPick.sel);
+  if (h.fill.visible) writePickTri(h.fill, pvPick.hover);
+  if (h.edge.visible) writePickTri(h.edge, pvPick.sel);
+}
+function process3DPick(){                          // 每幀最多一次 raycast(pointermove 只記錄座標)
+  const ev = pvPick.pending3D; pvPick.pending3D = null;
+  if (!ev || !pvModel || !pickActive()) return;
+  const r = $('pvCanvas').getBoundingClientRect(); if (!r.width || !r.height) return;
+  pvPick.rc.setFromCamera(new THREE.Vector2((ev.x - r.left)/r.width*2 - 1, -(ev.y - r.top)/r.height*2 + 1), pvCam);
+  const meshes = [];
+  pvModel.traverse(o=>{ if (o.isMesh && o.visible && o.geometry && o.name !== '__wire') meshes.push(o); });
+  meshes.forEach(m=>{ if (m.isSkinnedMesh) m.computeBoundingSphere(); });   // 動畫中蒙皮包圍球會變,重算避免漏判
+  const hit = pvPick.rc.intersectObjects(meshes, false).find(h=> h.faceIndex != null);
+  const p = hit ? { mesh:hit.object, tri:hit.faceIndex } : null;
+  if (ev.click) setPickSel(p); else setPickHover(p);
+}
+(function(){
+  const c = $('pvCanvas'); let down = null;
+  c.addEventListener('pointermove', e=>{ if (pickActive()) pvPick.pending3D = { x:e.clientX, y:e.clientY }; });
+  c.addEventListener('pointerleave', ()=>{ pvPick.pending3D = null; if (pickActive()) setPickHover(null); });
+  c.addEventListener('pointerdown', e=>{ down = (e.button === 0) ? { x:e.clientX, y:e.clientY } : null; });
+  c.addEventListener('pointerup', e=>{                // 未拖曳的左鍵點擊 = 選面(點空白取消)
+    if (down && pickActive() && Math.hypot(e.clientX - down.x, e.clientY - down.y) < 4) pvPick.pending3D = { x:e.clientX, y:e.clientY, click:true };
+    down = null;
+  });
+})();
+// UV:畫布座標 → 三角面(依目前材質 / UV 組顯示的網格)
+function uvPickAt(mx, my){
+  const T = pvUv.xf; if (!T || !pvModel) return null;
+  const u = (mx - T.ox) / T.side, v = 1 - (my - T.oy) / T.side;
+  const mat = pvUv.matIndex < 0 ? null : pvMaterials[pvUv.matIndex];
+  const meshes = meshesForMaterial(mat);
+  for (let mi = meshes.length - 1; mi >= 0; mi--){  // 後畫的在上,倒序找
+    const mesh = meshes[mi], geom = mesh.geometry, key = uvKeyFor(geom); if (!key) continue;
+    const uv = geom.attributes[key], idx = geom.index ? geom.index.array : null;
+    const n = idx ? idx.length : uv.count;
+    for (let i = n - n%3 - 3; i >= 0; i -= 3){
+      const a = idx?idx[i]:i, b = idx?idx[i+1]:i+1, c = idx?idx[i+2]:i+2;
+      const ax=uv.getX(a), ay=uv.getY(a), bx=uv.getX(b), by=uv.getY(b), cx=uv.getX(c), cy=uv.getY(c);
+      const d1 = (u-bx)*(ay-by) - (ax-bx)*(v-by), d2 = (u-cx)*(by-cy) - (bx-cx)*(v-cy), d3 = (u-ax)*(cy-ay) - (cx-ax)*(v-ay);
+      if (!((d1<0 || d2<0 || d3<0) && (d1>0 || d2>0 || d3>0))) return { mesh, tri:i/3 };
+    }
+  }
+  return null;
+}
+function drawUvHi(){
+  const c = $('pvUvHi'); if (!c) return;
+  const T = pvUv.xf;
+  const W = T ? Math.round(T.w*T.dpr) : 0, H = T ? Math.round(T.h*T.dpr) : 0;
+  if (c.width !== W || c.height !== H){ c.width = W; c.height = H; }
+  const ctx = c.getContext('2d'); if (!T) return;
+  ctx.setTransform(T.dpr,0,0,T.dpr,0,0); ctx.clearRect(0,0,T.w,T.h);
+  if (!pickActive()) return;
+  const mat = pvUv.matIndex < 0 ? null : pvMaterials[pvUv.matIndex];
+  const shown = meshesForMaterial(mat);
+  const path = p=>{
+    if (!p || !shown.includes(p.mesh)) return false;
+    const key = uvKeyFor(p.mesh.geometry); if (!key) return false;
+    const uv = p.mesh.geometry.attributes[key];
+    ctx.beginPath();
+    triVerts(p.mesh, p.tri).forEach((vi,k)=>{ const x = T.ox + uv.getX(vi)*T.side, y = T.oy + (1-uv.getY(vi))*T.side; k ? ctx.lineTo(x,y) : ctx.moveTo(x,y); });
+    ctx.closePath(); return true;
+  };
+  if (path(pvPick.hover)){ ctx.fillStyle = 'rgba(79,195,255,.45)'; ctx.fill(); ctx.strokeStyle = 'rgba(160,225,255,.95)'; ctx.lineWidth = 1; ctx.stroke(); }
+  if (path(pvPick.sel)){ ctx.strokeStyle = '#ff3030'; ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.stroke(); }
+}
+$('pvUvPick').addEventListener('click', ()=>{
+  pvUv.pick = !pvUv.pick; $('pvUvPick').classList.toggle('on', pvUv.pick);
+  if (!pvUv.pick) pvPick.hover = null;
+  pickChanged();
+});
 function uvFit(){ pvUv.zoom = 1; pvUv.panX = 0; pvUv.panY = 0; renderUV(); }
 /* UV 檢視:與 3D 預覽並列的第二個視窗(網格旁的「UV」按鈕切換) */
 function setUvPane(on){
@@ -4228,6 +4351,8 @@ function setUvPane(on){
   $('pvViews').classList.toggle('uvon', on);
   $('fcUV').classList.toggle('on', on);
   if (on){ buildUvControls(); uvFit(); }
+  else pvPick.hover = null;
+  pickChanged();
 }
 function setUvSplit(pct, persist){
   const W = $('pvViews').clientWidth, minPct = W ? Math.min(50, 180 / W * 100) : 15;   // 兩側各至少約 180px
@@ -4280,19 +4405,31 @@ $('pvUvFit').addEventListener('click', uvFit);
     pvUv.zoom = nz;
     renderUV();
   }, { passive:false });
+  let hoverRaf = 0, hoverAt = null;
+  const local = e=>{ const r = c.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
   c.addEventListener('pointerdown', e=>{
-    pvUv.drag = { x:e.clientX, y:e.clientY, px:pvUv.panX, py:pvUv.panY };
+    pvUv.drag = { x:e.clientX, y:e.clientY, px:pvUv.panX, py:pvUv.panY, moved:false };
     c.classList.add('grabbing'); c.setPointerCapture(e.pointerId);
   });
   c.addEventListener('pointermove', e=>{
-    if (!pvUv.drag) return;
+    if (!pvUv.drag){                                 // 面選取 hover(每幀最多算一次)
+      if (!pickActive()) return;
+      hoverAt = local(e);
+      if (!hoverRaf) hoverRaf = requestAnimationFrame(()=>{ hoverRaf = 0; if (hoverAt) setPickHover(uvPickAt(...hoverAt)); });
+      return;
+    }
+    if (Math.hypot(e.clientX - pvUv.drag.x, e.clientY - pvUv.drag.y) > 3) pvUv.drag.moved = true;
     pvUv.panX = pvUv.drag.px + (e.clientX - pvUv.drag.x);
     pvUv.panY = pvUv.drag.py + (e.clientY - pvUv.drag.y);
     renderUV();
   });
-  const end = ()=>{ pvUv.drag = null; c.classList.remove('grabbing'); };
+  const end = e=>{
+    if (pvUv.drag && !pvUv.drag.moved && e.type === 'pointerup' && e.button === 0 && pickActive()) setPickSel(uvPickAt(...local(e)));   // 點擊 = 選面
+    pvUv.drag = null; c.classList.remove('grabbing');
+  };
   c.addEventListener('pointerup', end);
   c.addEventListener('pointercancel', end);
+  c.addEventListener('pointerleave', ()=>{ hoverAt = null; if (pickActive() && !pvUv.drag) setPickHover(null); });
 })();
 
 /* ───────── 版面調整(寬度 / Inspector / 最大化) ───────── */
