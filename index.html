@@ -400,8 +400,8 @@
   #pvStats b{ color:var(--accent); }
   .gp-sep{ height:1px; background:var(--line); margin:9px 0; }
   .gp-row input[type=range]{ width:96px; accent-color:var(--accent); }
-  #pvLightPop .gp-row label{ white-space:nowrap; flex:0 0 auto; }
-  #pvLightPop .gp-row label{ min-width:3.6em; }
+  #rdLight .gp-row label{ white-space:nowrap; flex:0 0 auto; }
+  #rdLight .gp-row label{ min-width:3.6em; }
   .gp-row .lt-pair{ display:flex; align-items:center; gap:6px; min-width:0; flex:1 1 auto; }
   .gp-row .lt-pair input[type=range]{ width:auto; flex:1 1 60px; min-width:50px; }
   .gp-row input.lt-num{ width:58px; padding:3px 5px; font-size:11.5px; }
@@ -430,7 +430,7 @@
   }
   .vp-pop.open{ display:block; }
   /* 渲染浮層 */
-  #pvRenderPop{ width:236px; }
+  #pvRenderPop{ width:250px; max-height:calc(100% - 50px); overflow-y:auto; }
   .fseg{ display:inline-flex; border:1px solid var(--line); border-radius:6px; overflow:hidden; }
   .fseg .fchip{ border:none; border-radius:0; }
   .fseg .fchip + .fchip{ border-left:1px solid var(--line); }
@@ -839,7 +839,7 @@
             <button class="fchip" id="fcSkel" title="骨架">骨架</button>
             <button class="fchip" id="fcBox" title="邊界框">邊界框</button>
             <select id="pvBoxSel" title="邊界框目標(整體 / 指定 Mesh)"><option value="all">整體(全部 Mesh)</option></select>
-            <button class="fchip" id="fcRender" title="渲染設定:標準 / 白模、光照、網格線、法線">🎨 渲染</button>
+            <button class="fchip" id="fcRender" title="渲染設定:標準 / 白模、網格線、法線、光照(色調映射、曝光、燈光強度與主光角度)">🎨 渲染</button>
             <button class="fchip" id="fcStats" title="統計 HUD">統計</button>
             <span class="fsep"></span>
             <span class="flabel">背景</span>
@@ -849,7 +849,6 @@
               <option value="skybox">Skybox</option>
             </select>
             <button class="fchip" id="pvCamBtn" title="攝影機設定">📷 攝影機</button>
-            <button class="fchip" id="pvLightBtn" title="光照設定">💡 光照</button>
             <button class="fchip" id="pvGridBtn" title="網格設定">⚙ 網格</button>
           </div>
           <div id="pvGridPop">
@@ -902,22 +901,24 @@
             </span></div>
             <div class="gp-row rd-sub rd-nrm"><label>長度 <span id="rdNLenVal">1.0×</span></label><input type="range" id="rdNLen" min="0.1" max="5" step="0.1" value="1" title="法線長度(相對模型尺寸;雙擊重設)"></div>
             <div class="gp-info rd-nrm" id="rdNrmInfo"></div>
-          </div>
-          <div id="pvLightPop" class="vp-pop">
-            <div class="gp-row"><label>頂點色 Vertex Color</label><input type="checkbox" id="ltVColor" title="預設關閉:忽略模型烘焙的頂點色(避免近黑頂點色把貼圖壓黑)。勾選才顯示頂點色。"></div>
             <div class="gp-sep"></div>
-            <div class="gp-row"><label>色調映射</label><select id="ltTone" title="Tone Mapping:ACES 對比強、中間調偏暗;Linear / 無 較接近 Unity 預設(無後製)的亮度">
-              <option value="aces">ACES Filmic</option><option value="agx">AgX</option><option value="linear">Linear</option><option value="none">無</option></select></div>
-            <div class="gp-row"><label>曝光</label><input type="range" id="ltExp" min="0.3" max="2.5" step="0.05" value="1"></div>
-            <div class="gp-row"><label>主光</label><input type="range" id="ltKey" min="0" max="5" step="0.1" value="1.9"></div>
-            <div class="gp-row"><label>環境光</label><input type="range" id="ltHemi" min="0" max="4" step="0.1" value="1.2"></div>
-            <div class="gp-row"><label>補光</label><input type="range" id="ltFill" min="0" max="3" step="0.1" value="0.5"></div>
-            <div class="gp-sep"></div>
-            <div class="gp-label">主光角度 / 距離(相對世界原點)</div>
-            <div class="gp-row"><label>方位角</label><input type="range" id="ltAzim" min="0" max="360" step="1" value="35"></div>
-            <div class="gp-row"><label>仰角</label><input type="range" id="ltElev" min="-89" max="89" step="1" value="45"></div>
-            <div class="gp-row"><label>距離</label><input type="range" id="ltDist" min="0.3" max="5" step="0.1" value="1.5"></div>
-            <div class="gp-info" id="ltInfo">方位 35° · 仰角 45° · 距離 1.5×</div>
+            <div id="rdLight">
+              <div class="gp-label">💡 光照設定</div>
+              <div class="gp-row"><label>頂點色 Vertex Color</label><input type="checkbox" id="ltVColor" title="預設關閉:忽略模型烘焙的頂點色(避免近黑頂點色把貼圖壓黑)。勾選才顯示頂點色。"></div>
+              <div class="gp-sep"></div>
+              <div class="gp-row"><label>色調映射</label><select id="ltTone" title="Tone Mapping:ACES 對比強、中間調偏暗;Linear / 無 較接近 Unity 預設(無後製)的亮度">
+                <option value="aces">ACES Filmic</option><option value="agx">AgX</option><option value="linear">Linear</option><option value="none">無</option></select></div>
+              <div class="gp-row"><label>曝光</label><input type="range" id="ltExp" min="0.3" max="2.5" step="0.05" value="1"></div>
+              <div class="gp-row"><label>主光</label><input type="range" id="ltKey" min="0" max="5" step="0.1" value="1.9"></div>
+              <div class="gp-row"><label>環境光</label><input type="range" id="ltHemi" min="0" max="4" step="0.1" value="1.2"></div>
+              <div class="gp-row"><label>補光</label><input type="range" id="ltFill" min="0" max="3" step="0.1" value="0.5"></div>
+              <div class="gp-sep"></div>
+              <div class="gp-label">主光角度 / 距離(相對世界原點)</div>
+              <div class="gp-row"><label>方位角</label><input type="range" id="ltAzim" min="0" max="360" step="1" value="35"></div>
+              <div class="gp-row"><label>仰角</label><input type="range" id="ltElev" min="-89" max="89" step="1" value="45"></div>
+              <div class="gp-row"><label>距離</label><input type="range" id="ltDist" min="0.3" max="5" step="0.1" value="1.5"></div>
+              <div class="gp-info" id="ltInfo">方位 35° · 仰角 45° · 距離 1.5×</div>
+            </div>
           </div>
           <div id="pvOverlay">
             <div class="spacer"></div>
@@ -2510,7 +2511,7 @@ function applyLight(){
   }
   updateLightGizmo();
 }
-/* 主光位置指示器(小球 + 連到原點的線),開啟「光照」浮層時顯示,方便看角度/距離 */
+/* 主光位置指示器(小球 + 連到原點的線),開啟「渲染」浮層(含光照設定)時顯示,方便看角度/距離 */
 let pvLightGizmo = null;
 function ensureLightGizmo(){
   if (pvLightGizmo || !pvScene) return;
@@ -3944,17 +3945,16 @@ $('pvBgSel').addEventListener('change', e=>{
   pvDisp.bg = e.target.value; applyBackground();
   $('pvSolidRow').style.display = (pvDisp.bg === 'solid') ? 'flex' : 'none';
 });
-const VP_POPS = ['pvGridPop','pvCamPop','pvLightPop','pvRenderPop'];
+const VP_POPS = ['pvGridPop','pvCamPop','pvRenderPop'];
 function togglePop(id){
   const willOpen = !$(id).classList.contains('open');
   VP_POPS.forEach(p=> $(p).classList.toggle('open', p===id && willOpen));
-  const lightOpen = $('pvLightPop').classList.contains('open');
+  const lightOpen = $('pvRenderPop').classList.contains('open');   // 光照設定已整合進「渲染」浮層
   if (lightOpen){ $('ltVColor').checked = pvDisp.vcolors; }   // 開啟時同步勾選狀態
-  showLightGizmo(lightOpen);                                     // 開「光照」浮層時顯示主光位置指示器
+  showLightGizmo(lightOpen);                                     // 開「渲染」浮層時顯示主光位置指示器
 }
 $('pvGridBtn').addEventListener('click', ()=>togglePop('pvGridPop'));
 $('pvCamBtn').addEventListener('click', ()=>{ applyCamState(); togglePop('pvCamPop'); });
-$('pvLightBtn').addEventListener('click', ()=>togglePop('pvLightPop'));
 $('fcRender').addEventListener('click', ()=>{ syncRenderUI(); togglePop('pvRenderPop'); });
 
 /* 渲染 */
@@ -4010,7 +4010,7 @@ $('ltHemi').addEventListener('input', e=>{ pvLight.hemi=parseFloat(e.target.valu
 $('ltFill').addEventListener('input', e=>{ pvLight.fill=parseFloat(e.target.value); applyLight(); });
 $('ltTone').addEventListener('change', e=>{ pvLight.tone = e.target.value; applyLight(); });
 // 每個光照滑桿旁加一個可直接輸入數字的欄位(雙向同步;輸入值可超出滑桿範圍,滑桿範圍會跟著放寬)
-document.querySelectorAll('#pvLightPop input[type=range]').forEach(rg=>{
+document.querySelectorAll('#rdLight input[type=range]').forEach(rg=>{
   const num = document.createElement('input');
   num.type = 'number'; num.className = 'lt-num'; num.step = rg.step; num.value = rg.value; num.title = '直接輸入數值';
   const pair = document.createElement('span'); pair.className = 'lt-pair';
