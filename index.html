@@ -308,24 +308,23 @@
   /* viewport(左) + Inspector(右) 水平分割 */
   #pvMain{ flex:1 1 auto; display:flex; min-height:0; min-width:0; }
   #pvLeft{ flex:1 1 auto; display:flex; flex-direction:column; min-width:0; min-height:0; }
-  #pvVpWrap{ flex:1 1 auto; position:relative; background:#101116; min-height:0; }
+  #pvViews{ flex:1 1 auto; display:flex; min-height:0; min-width:0; }        /* 3D 與 UV 並列 */
+  #pvVpWrap{ flex:1 1 auto; position:relative; background:#101116; min-height:0; min-width:0; }
   #pvCanvas{ position:absolute; inset:0; width:100%; height:100%; display:block; }
   #pvOverlay{
     position:absolute; left:0; right:0; bottom:0; display:flex; align-items:center; gap:8px;
     padding:8px 10px; background:linear-gradient(transparent,rgba(8,9,12,.78));
   }
 
-  /* 檢視模式切換(3D / UV)*/
-  .fseg{ display:inline-flex; border:1px solid var(--line); border-radius:6px; overflow:hidden; }
-  .fseg .fchip{ border:none; border-radius:0; }
-  .fseg .fchip + .fchip{ border-left:1px solid var(--line); }
-
   /* 2D UV / 貼圖檢視 */
-  #pvUvWrap{ position:absolute; inset:0; z-index:2; display:none; background:#0b0c10; }
-  #pvVpWrap.uvmode #pvUvWrap{ display:block; }
-  #pvVpWrap.uvmode #pvCanvas{ visibility:hidden; }          /* 3D 畫布隱藏,UV 覆蓋其上 */
-  #pvVpWrap.uvmode #pvOverlay{ display:none; }
-  #pvVpWrap.uvmode #pvFlow{ display:none; }        /* UV 模式:3D 工具列整條隱藏(檢視切換移入 UV 工具列),避免蓋住 UV 工具列 */
+  #pvUvWrap{ flex:0 0 50%; position:relative; display:none; background:#0b0c10; min-width:0; overflow:hidden; }
+  #pvViews.uvon #pvUvWrap{ display:block; }
+  /* 3D / UV 之間的分隔條(拖曳調整比例,雙擊還原各半) */
+  #pvUvGrip{ flex:0 0 6px; display:none; cursor:col-resize; background:var(--line); position:relative; z-index:5; }
+  #pvViews.uvon #pvUvGrip{ display:block; }
+  #pvUvGrip:hover, #pvUvGrip.drag{ background:var(--accent); }
+  #pvViews.dragging{ cursor:col-resize; user-select:none; }
+  #pvViews.dragging canvas{ pointer-events:none; }
   #pvUvCanvas{ position:absolute; inset:0; width:100%; height:100%; display:block; cursor:grab; touch-action:none; }
   #pvUvCanvas.grabbing{ cursor:grabbing; }
   #pvUvBar{
@@ -805,15 +804,12 @@
     </div>
     <div id="pvMain">
       <div id="pvLeft">
+        <div id="pvViews">
         <div id="pvVpWrap">
           <canvas id="pvCanvas"></canvas>
           <div id="pvFlow">
-            <span class="fseg" id="pvViewSeg" title="檢視模式:3D 模型 / 2D UV 貼圖">
-              <button class="fchip on" id="pvView3D">3D</button>
-              <button class="fchip" id="pvViewUV">UV</button>
-            </span>
-            <span class="fsep"></span>
             <button class="fchip on" id="fcGrid" title="地面網格">網格</button>
+            <button class="fchip" id="fcUV" title="UV 檢視:在 3D 預覽旁並列開啟 UV / 貼圖視窗(中間分隔條可拖曳調整)">UV</button>
             <button class="fchip" id="fcAxes" title="世界座標軸">座標軸</button>
             <button class="fchip" id="fcSkel" title="骨架">骨架</button>
             <button class="fchip" id="fcBox" title="邊界框">邊界框</button>
@@ -885,6 +881,8 @@
             <button class="ibtn" id="pvUp" title="切換 Up 軸(Z↑ ↔ Y↑)">Y↑</button>
             <button class="ibtn" id="pvFrame" title="重新取景">取景</button>
           </div>
+        </div>
+        <div id="pvUvGrip" title="拖曳調整 3D / UV 比例(雙擊還原)"></div>
           <div id="pvUvWrap">
             <canvas id="pvUvCanvas"></canvas>
             <div id="pvUvBar">
@@ -2619,10 +2617,9 @@ function pvResize(){
 }
 function pvLoop(){
   pvRAF = requestAnimationFrame(pvLoop);
-  if (pvUv.on){                                    // UV 檢視:不跑 3D 更新,僅偵測尺寸變化重繪
+  if (pvUv.on){                                    // UV 並列視窗:僅在尺寸變化時重繪
     const wrap = $('pvUvWrap');
     if (wrap && (wrap.clientWidth !== pvUv.lastW || wrap.clientHeight !== pvUv.lastH)) renderUV();
-    return;
   }
   pvResize();
   if (pvMixer && pvPlaying && !pvSeeking) pvMixer.update(pvClock.getDelta());
@@ -3996,20 +3993,40 @@ function renderUV(){
   if (info) info.textContent = `${setLbl}${triCount ? fmtNum(triCount)+' 三角面 · ' : ''}${texName_ || '無底圖'} · 滾輪縮放`;
 }
 function uvFit(){ pvUv.zoom = 1; pvUv.panX = 0; pvUv.panY = 0; renderUV(); }
-function setViewMode(mode){
-  const uv = (mode === 'uv');
-  pvUv.on = uv;
-  $('pvVpWrap').classList.toggle('uvmode', uv);
-  $('pvView3D').classList.toggle('on', !uv);
-  $('pvViewUV').classList.toggle('on', uv);
-  // 3D / UV 切換鈕跟著移到當前模式的工具列最前面
-  (uv ? $('pvUvBar') : $('pvFlow')).prepend($('pvViewSeg'));
-  // 收起 3D 專用的浮層
-  if (uv){ VP_POPS.forEach(p=> $(p).classList.remove('open')); showLightGizmo(false); }
-  if (uv){ buildUvControls(); uvFit(); renderUV(); }
+/* UV 檢視:與 3D 預覽並列的第二個視窗(網格旁的「UV」按鈕切換) */
+function setUvPane(on){
+  pvUv.on = on;
+  $('pvViews').classList.toggle('uvon', on);
+  $('fcUV').classList.toggle('on', on);
+  if (on){ buildUvControls(); uvFit(); }
 }
-$('pvView3D').addEventListener('click', ()=> setViewMode('3d'));
-$('pvViewUV').addEventListener('click', ()=> setViewMode('uv'));
+function setUvSplit(pct, persist){
+  const W = $('pvViews').clientWidth, minPct = W ? Math.min(50, 180 / W * 100) : 15;   // 兩側各至少約 180px
+  pct = Math.max(Math.max(15, minPct), Math.min(Math.min(85, 100 - minPct), pct || 50));
+  $('pvUvWrap').style.flexBasis = pct + '%';
+  if (persist){ try { localStorage.setItem('fbxmgr.uvSplit', String(Math.round(pct*10)/10)); } catch(_){} }
+}
+$('fcUV').addEventListener('click', ()=> setUvPane(!pvUv.on));
+(function(){
+  const grip = $('pvUvGrip'), views = $('pvViews');
+  let s = 0; try { s = parseFloat(localStorage.getItem('fbxmgr.uvSplit') || ''); } catch(_){}
+  setUvSplit(s > 0 ? s : 50, false);
+  let dragging = false;
+  const pctAt = x=>{ const r = views.getBoundingClientRect(); return (r.right - x) / r.width * 100; };
+  grip.addEventListener('pointerdown', e=>{
+    dragging = true; grip.setPointerCapture(e.pointerId);
+    grip.classList.add('drag'); views.classList.add('dragging'); e.preventDefault();
+  });
+  grip.addEventListener('pointermove', e=>{ if (dragging) setUvSplit(pctAt(e.clientX), false); });
+  const end = e=>{
+    if (!dragging) return; dragging = false;
+    grip.classList.remove('drag'); views.classList.remove('dragging');
+    setUvSplit(pctAt(e.clientX), true);
+  };
+  grip.addEventListener('pointerup', end);
+  grip.addEventListener('pointercancel', end);
+  grip.addEventListener('dblclick', ()=> setUvSplit(50, true));
+})();
 $('pvUvMat').addEventListener('change', e=>{
   pvUv.matIndex = (e.target.value === 'all') ? -1 : (+e.target.value);
   buildUvSetOptions(); buildUvSlotOptions(); renderUV();
