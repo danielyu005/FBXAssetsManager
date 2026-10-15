@@ -909,15 +909,15 @@
               <div class="gp-row"><label>色調映射</label><select id="ltTone" title="Tone Mapping:ACES 對比強、中間調偏暗;Linear / 無 較接近 Unity 預設(無後製)的亮度">
                 <option value="aces">ACES Filmic</option><option value="agx">AgX</option><option value="linear">Linear</option><option value="none">無</option></select></div>
               <div class="gp-row"><label>曝光</label><input type="range" id="ltExp" min="0.3" max="2.5" step="0.05" value="1"></div>
-              <div class="gp-row"><label>主光</label><input type="range" id="ltKey" min="0" max="5" step="0.1" value="1.9"></div>
-              <div class="gp-row"><label>環境光</label><input type="range" id="ltHemi" min="0" max="4" step="0.1" value="1.2"></div>
-              <div class="gp-row"><label>補光</label><input type="range" id="ltFill" min="0" max="3" step="0.1" value="0.5"></div>
+              <div class="gp-row rd-lt"><label>主光</label><input type="range" id="ltKey" min="0" max="5" step="0.1" value="1.9"></div>
+              <div class="gp-row rd-lt"><label>環境光</label><input type="range" id="ltHemi" min="0" max="4" step="0.1" value="1.2"></div>
+              <div class="gp-row rd-lt"><label>補光</label><input type="range" id="ltFill" min="0" max="3" step="0.1" value="0.5"></div>
               <div class="gp-sep"></div>
-              <div class="gp-label">主光角度 / 距離(相對世界原點)</div>
-              <div class="gp-row"><label>方位角</label><input type="range" id="ltAzim" min="0" max="360" step="1" value="35"></div>
-              <div class="gp-row"><label>仰角</label><input type="range" id="ltElev" min="-89" max="89" step="1" value="45"></div>
-              <div class="gp-row"><label>距離</label><input type="range" id="ltDist" min="0.3" max="5" step="0.1" value="1.5"></div>
-              <div class="gp-info" id="ltInfo">方位 35° · 仰角 45° · 距離 1.5×</div>
+              <div class="gp-label rd-lt">主光角度 / 距離(相對世界原點)</div>
+              <div class="gp-row rd-lt"><label>方位角</label><input type="range" id="ltAzim" min="0" max="360" step="1" value="35"></div>
+              <div class="gp-row rd-lt"><label>仰角</label><input type="range" id="ltElev" min="-89" max="89" step="1" value="45"></div>
+              <div class="gp-row rd-lt"><label>距離</label><input type="range" id="ltDist" min="0.3" max="5" step="0.1" value="1.5"></div>
+              <div class="gp-info rd-lt" id="ltInfo">方位 35° · 仰角 45° · 距離 1.5×</div>
             </div>
           </div>
           <div id="pvOverlay">
@@ -3967,6 +3967,8 @@ function syncRenderUI(){
   $('rdNrm').checked = pvDisp.normals; $('rdNP').checked = pvDisp.nPoint; $('rdNE').checked = pvDisp.nEdge; $('rdNF').checked = pvDisp.nFace;
   $('rdNLen').value = pvDisp.nScale; $('rdNLenVal').textContent = pvDisp.nScale.toFixed(1) + '×';
   document.querySelectorAll('#pvRenderPop .rd-nrm').forEach(r=> r.classList.toggle('rd-off', !pvDisp.normals));
+  // 關閉光照時,燈光強度 / 主光角度無作用 → 變灰(頂點色、色調映射、曝光對無光照材質仍有效,保持可用)
+  document.querySelectorAll('#rdLight .rd-lt').forEach(r=> r.classList.toggle('rd-off', !pvDisp.lit));
   $('rdNrmInfo').classList.remove('rd-off');
   updateNormalInfo();
   syncFlowChips();
