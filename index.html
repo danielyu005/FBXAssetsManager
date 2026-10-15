@@ -4392,23 +4392,27 @@ $('pvUvWire').addEventListener('click', ()=>{ pvUv.wire = !pvUv.wire; $('pvUvWir
 $('pvUvFit').addEventListener('click', uvFit);
 (function(){
   const c = $('pvUvCanvas');
+  // 介面縮放(body CSS zoom)下,clientX / getBoundingClientRect 是螢幕像素,畫布繪製用的是元素 CSS 像素 → 需換算
+  const pxScale = ()=>{ const r = c.getBoundingClientRect(); return r.width ? c.clientWidth / r.width : 1; };
+  const local = e=>{ const r = c.getBoundingClientRect(), k = r.width ? c.clientWidth / r.width : 1; return [(e.clientX - r.left)*k, (e.clientY - r.top)*k]; };
   c.addEventListener('wheel', e=>{
     e.preventDefault();
-    const rect = c.getBoundingClientRect();
-    const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+    const [mx, my] = local(e);
     const factor = e.deltaY < 0 ? 1.12 : 1/1.12;
     const nz = Math.max(0.2, Math.min(pvUv.zoom * factor, 12));
-    const k = nz / pvUv.zoom;
-    // 以游標為中心縮放
-    pvUv.panX = mx - k*(mx - pvUv.panX);
-    pvUv.panY = my - k*(my - pvUv.panY);
+    const k = nz / pvUv.zoom, T = pvUv.xf;
+    // 以游標為中心縮放:游標下的 UV 點保持不動(UV 方塊以畫布中心 + pan 定位)
+    if (T){
+      const side2 = T.side * k;
+      pvUv.panX = mx - (mx - T.ox)*k - (T.w - side2)/2;
+      pvUv.panY = my - (my - T.oy)*k - (T.h - side2)/2;
+    }
     pvUv.zoom = nz;
     renderUV();
   }, { passive:false });
   let hoverRaf = 0, hoverAt = null;
-  const local = e=>{ const r = c.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
   c.addEventListener('pointerdown', e=>{
-    pvUv.drag = { x:e.clientX, y:e.clientY, px:pvUv.panX, py:pvUv.panY, moved:false };
+    pvUv.drag = { x:e.clientX, y:e.clientY, px:pvUv.panX, py:pvUv.panY, moved:false, k:pxScale() };
     c.classList.add('grabbing'); c.setPointerCapture(e.pointerId);
   });
   c.addEventListener('pointermove', e=>{
@@ -4419,8 +4423,8 @@ $('pvUvFit').addEventListener('click', uvFit);
       return;
     }
     if (Math.hypot(e.clientX - pvUv.drag.x, e.clientY - pvUv.drag.y) > 3) pvUv.drag.moved = true;
-    pvUv.panX = pvUv.drag.px + (e.clientX - pvUv.drag.x);
-    pvUv.panY = pvUv.drag.py + (e.clientY - pvUv.drag.y);
+    pvUv.panX = pvUv.drag.px + (e.clientX - pvUv.drag.x) * pvUv.drag.k;
+    pvUv.panY = pvUv.drag.py + (e.clientY - pvUv.drag.y) * pvUv.drag.k;
     renderUV();
   });
   const end = e=>{
