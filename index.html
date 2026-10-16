@@ -4269,7 +4269,8 @@ function meshesForMaterial(mat){                 // 取用此材質的網格(mat
   pvModel.traverse(o=>{
     if (!o.isMesh || !o.geometry || o.name === '__wire') return;
     if (!mat){ out.push(o); return; }
-    const mats = Array.isArray(o.material) ? o.material : [o.material];
+    const om = o.userData._origMat || o.material;   // 無光照 / 白模時 o.material 是派生材質 → 以原始材質比對
+    const mats = Array.isArray(om) ? om : [om];
     if (mats.includes(mat)) out.push(o);
   });
   return out;
