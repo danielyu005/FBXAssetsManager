@@ -679,6 +679,8 @@
   .shpanel input[type=color]{ width:34px; height:20px; padding:0; border:1px solid var(--line); border-radius:4px; background:none; cursor:pointer; }
   .shpanel input[type=range]{ flex:1 1 80px; min-width:60px; accent-color:var(--accent); }
   .shpanel select{ background:var(--panel-2); color:var(--text); border:1px solid var(--line); border-radius:4px; padding:2px 4px; font-size:11px; }
+  .shpanel .shnote{ grid-column:2 / -1; font-size:10px; color:var(--dim); margin-top:-3px; }
+  .shpanel .shnote.warn{ color:#e0a040; }
   .shpanel .shhex{ font-family:var(--mono); font-size:10.5px; color:var(--muted); }
   .shpanel .shsec{ grid-column:1 / -1; font-size:10px; color:var(--dim); letter-spacing:.04em; border-top:1px solid #1f2128; padding-top:5px; margin-top:2px; }
   .shpanel .shsec:first-child{ border-top:none; padding-top:0; margin-top:0; }
@@ -1945,16 +1947,21 @@ function bindFbxUvSets(root, info){                // 依 UVSet 名稱設定 tex
       TEX_SLOTS.forEach(s=>{
         const t = mat[s.key]; if (!t || !t.isTexture || t.ID == null) return;
         const set = info.texUv.get(Number(t.ID)); if (!set) return;
-        const ch = names.indexOf(set); if (ch < 0) return;   // 名稱對不上 → 維持 UV0
+        const norm = x => String(x).trim().toLowerCase();
+        const ch = names.findIndex(n=> norm(n) === norm(set));
+        if (!votes.has(t.uuid)) votes.set(t.uuid, { tex:t, set, cnt:{} });
+        if (ch < 0) return;                                  // 名稱對不上(如 "default")→ 維持 UV0
         if (!votes.has(t.uuid)) votes.set(t.uuid, { tex:t, set, cnt:{} });
         const v = votes.get(t.uuid); v.cnt[ch] = (v.cnt[ch] || 0) + 1;
       });
     });
   });
   votes.forEach(({ tex, set, cnt })=>{
-    const ch = +Object.keys(cnt).sort((a,b)=>cnt[b]-cnt[a])[0];
+    const best = Object.keys(cnt).sort((a,b)=>cnt[b]-cnt[a])[0];
+    const ch = best == null ? -1 : +best;
     tex.userData.uvSet = set;
-    if (ch >= 0 && ch <= 3 && (tex.channel | 0) !== ch){ tex.channel = ch; tex.needsUpdate = true; }
+    // 只改 channel(材質重新編譯即可);不設 tex.needsUpdate,避免影像尚未載入時重複上傳警告
+    if (ch >= 0 && ch <= 3) tex.channel = ch;
   });
   root.traverse(o=>{                                 // 材質的預設 UV ID = 其貼圖所綁定的 UV 組(底圖優先)
     if (!o.isMesh) return;
@@ -1962,6 +1969,7 @@ function bindFbxUvSets(root, info){                // 依 UVSet 名稱設定 tex
       if (!mat) return;
       const t = [mat.map, ...TEX_SLOTS.map(s=>mat[s.key])].find(t=>t && t.isTexture);
       mat.userData.fbxUv = t ? (t.channel | 0) : 0;
+      mat.userData.fbxUvSet = (t && t.userData.uvSet) || '';     // 檔案中記錄的 UVSet 名稱(面板提示用)
       mat.needsUpdate = true;
     });
   });
@@ -3919,6 +3927,7 @@ function convertMaterial(root, mats, mi, shader){  // 切換材質的著色器(�
   for (const k in stash){ if ((k in dst) && !dst[k]){ dst[k] = stash[k]; delete stash[k]; } }
   dst.userData._texStash = stash;
   if (src.userData && src.userData.fbxUv != null) dst.userData.fbxUv = src.userData.fbxUv;
+  if (src.userData && src.userData.fbxUvSet != null) dst.userData.fbxUvSet = src.userData.fbxUvSet;
   ['transparent','opacity','alphaTest','side','vertexColors','wireframe','aoMapIntensity','depthWrite']
     .forEach(k=>{ if ((k in src) && (k in dst)) dst[k] = src[k]; });
   if (src.normalScale && dst.normalScale) dst.normalScale.copy(src.normalScale);
@@ -3949,7 +3958,8 @@ function applySavedShaders(root, mats, shaders){   // 載入時套回已保存�
     if (!mats[mi] || !cfg || !SHADERS[cfg.shader]) continue;
     convertMaterial(root, mats, mi, cfg.shader);
     mats[mi].userData.shaderCfg = { ...cfg };
-    if (cfg.uv == null) mats[mi].userData.shaderCfg.uv = detectedUv(mats[mi]);   // 重新掃描後:UV ID 依檔案重新判定
+    // UV ID 只保留使用者手動指定的值(uvUser);舊存檔 / 重新掃描後的 uv 一律依檔案重新判定
+    if (cfg.uv == null || !cfg.uvUser){ mats[mi].userData.shaderCfg.uv = detectedUv(mats[mi]); delete mats[mi].userData.shaderCfg.uvUser; }
     applyShaderParams(mats[mi], mats);
   }
 }
@@ -3963,6 +3973,17 @@ function afterShaderChange(){                      // 讓其他視圖反映材�
   if (pvModel) applyMeshMode();
   recountTextures();
   if (pvUv.on){ buildUvControls(); renderUV(); }
+}
+function uvNoteHTML(mat, c, det, setNames, keys){  // UV ID 來源說明:檔案綁定 / 手動指定 / 無資訊
+  const set = (mat.userData && mat.userData.fbxUvSet) || '';
+  const k = det ? 'uv'+det : 'uv';
+  let txt, warn = false;
+  if (!keys.size){ txt = '找不到使用此材質的網格 UV'; warn = true; }
+  else if (set && (setNames[k] || '').trim().toLowerCase() === set.trim().toLowerCase()) txt = `檔案:貼圖 UVSet「${esc(set)}」→ UV${det}`;
+  else if (set) txt = `檔案:貼圖 UVSet「${esc(set)}」無對應 UV 組 → 預設 UV0`;
+  else txt = '檔案未指定貼圖 UVSet → 預設 UV0';
+  if ((c.uv | 0) !== det){ txt += `;目前為手動指定 UV${c.uv | 0}`; warn = true; }
+  return `<span class="shnote${warn?' warn':''}">${txt}</span>`;
 }
 function shaderPanelHTML(mat, mi){
   const c = getShaderCfg(mat), sh = shaderOf(mat) || 'standard';
@@ -3984,6 +4005,7 @@ function shaderPanelHTML(mat, mi){
     <span class="shk">UV ID</span><span class="shv"><select data-f="uv" title="貼圖取樣使用哪一組 UV">${
       ids.map(i=>{ const k = i ? 'uv'+i : 'uv';
         return `<option value="${i}" ${i===(c.uv|0)?'selected':''}>UV${i}${setNames[k]?' · '+esc(setNames[k]):''}${keys.has(k)?'':'(網格無此組)'}${i===det?'(檔案綁定)':''}</option>`; }).join('')}</select></span>
+    ${uvNoteHTML(mat, c, det, setNames, keys)}
     <span class="shk">Tint Color</span><span class="shv">${col('tint', c.tint)}</span>`;
   if (sh === 'standard'){
     h += `<div class="shsec">Specular</div>
@@ -4028,12 +4050,21 @@ function bindShaderUI(wrap){
       if (v('shininess')) c.shininess = n('shininess', 30);
       panel.querySelectorAll('[data-hex]').forEach(s=>{ const i = v(s.dataset.hex); if (i) s.textContent = i.value.toUpperCase(); });
       const uvChanged = (c.uv | 0) !== (getShaderCfg(mat).uv | 0);
+      if (uvChanged){ if ((c.uv | 0) === detectedUv(mat)) delete c.uvUser; else c.uvUser = true; }   // 與檔案不同 → 視為手動指定
       mat.userData.shaderCfg = c;
       applyShaderParams(mat, pvMaterials);
-      if (commit){ saveShaderCfg(mi); if (uvChanged && pvUv.on){ buildUvControls(); renderUV(); } }
+      if (commit){
+        saveShaderCfg(mi);
+        if (uvChanged){
+          if (pvUv.on){ buildUvControls(); renderUV(); }
+          const note = panel.querySelector('.shnote');      // 更新 UV ID 來源說明
+          if (note){ const tmp = document.createElement('div'); tmp.innerHTML = shaderPanelHTML(mat, mi); const nn = tmp.querySelector('.shnote'); if (nn) note.replaceWith(nn); }
+        }
+      }
     };
     panel.querySelectorAll('input,select').forEach(inp=>{
       inp.addEventListener('input', ()=>{
+        if (inp.tagName === 'SELECT') return;      // 下拉只在 change 處理(input 先觸發會讓 change 判斷不到 UV 變更)
         const f = inp.dataset.f;                   // Shininess 滑桿 ↔ 數字同步
         if (f === 'shininess') panel.querySelector('[data-f="shininessN"]').value = inp.value;
         if (f === 'shininessN') panel.querySelector('[data-f="shininess"]').value = inp.value;
@@ -4939,7 +4970,7 @@ $('rescanBtn').addEventListener('click', async ()=>{
   Object.values(snapshot || {}).forEach(rec=>{       // 複製後再刪,不動到目前資產的設定
     if (!rec || !rec.shaders) return;
     const shd = {};
-    for (const mi in rec.shaders){ const { uv, ...rest } = rec.shaders[mi] || {}; shd[mi] = rest; }
+    for (const mi in rec.shaders){ const { uv, uvUser, ...rest } = rec.shaders[mi] || {}; shd[mi] = rest; }
     rec.shaders = shd;
   });
   const source = G.source;
