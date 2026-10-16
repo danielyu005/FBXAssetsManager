@@ -4979,6 +4979,10 @@ $('rescanBtn').addEventListener('click', async ()=>{
   });
   const source = G.source;
   const adopt = G.curProjId ? { id:G.curProjId, name:G.curProjName } : null;
+  // 記住目前預覽中的資產與鏡頭,重掃後重新載入 → Viewport 與 Inspector 同步更新
+  const cur = (G.selected >= 0 && $('preview').classList.contains('open')) ? G.assets[G.selected] : null;
+  const keepPath = cur ? cur.path : null;
+  const keepCam = (cur && pvCam && pvControls) ? { pos:pvCam.position.clone(), target:pvControls.target.clone() } : null;
   // 本機資料夾:用 handle 真正重讀磁碟(可抓到新增/更動的檔);其他來源沿用既有 entries
   let entries = G.entries, rootName = G.rootName;
   if (G.dirHandle && typeof G.dirHandle.values === 'function'){
@@ -4996,6 +5000,15 @@ $('rescanBtn').addEventListener('click', async ()=>{
   G.pendingProject = snapshot;                            // 讓 ingest 於重掃後把狀態套回
   if (adopt) projToAdopt = adopt;                         // 保留專案關聯(否則 ingest 會清成 null)
   await ingest(entries, rootName, source);
+  if (keepPath){
+    const idx = G.assets.findIndex(a=>a.path === keepPath);
+    if (idx >= 0){
+      await selectAsset(idx);
+      if (keepCam && G.selected === idx && pvModel){          // 還原鏡頭,避免重掃後視角跳掉
+        pvCam.position.copy(keepCam.pos); pvControls.target.copy(keepCam.target); pvControls.update();
+      }
+    }
+  }
   toast(adopt ? '已重新掃描,並自動存檔+還原狀態' : '已重新掃描,並還原目前狀態');
 });
 $('search').addEventListener('input', debounce(renderGrid, 160));
