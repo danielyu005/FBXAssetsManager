@@ -4987,6 +4987,17 @@ $('rescanBtn').addEventListener('click', async ()=>{
   const curClip = (cur && pvModel && pvModel.animations) ? pvModel.animations[pvClipIdx] : null;
   const keepClip = curClip ? { name:curClip.name || '', idx:pvClipIdx,
     time: pvCurAction ? pvCurAction.time : 0, playing: pvPlaying } : null;   // 連同播放時間點與暫停狀態
+  // 記住 UV 檢視(縮放 / 平移 / 選取的面)與 Inspector 的介面狀態(捲動位置、驗收編輯中的草稿)
+  let keepUi = null;
+  if (cur){
+    const meshes = meshesForMaterial(null).filter(m=>!(m.name || '').startsWith('__'));   // 排除輔助覆蓋網格
+    keepUi = {
+      uv: { zoom:pvUv.zoom, panX:pvUv.panX, panY:pvUv.panY },
+      sel: [...pvPick.sel.values()].map(p=>({ mi:meshes.indexOf(p.mesh), tri:p.tri })).filter(p=>p.mi >= 0),
+      scroll: ['pvTabBody','matTop','matBottom'].map(id=>[id, $(id) ? $(id).scrollTop : 0]),
+      stdEditing: cur._stdEditing, stdPreview: cur._stdPreview, verEdit: cur._verEdit,
+    };
+  }
   // 本機資料夾:用 handle 真正重讀磁碟(可抓到新增/更動的檔);其他來源沿用既有 entries
   let entries = G.entries, rootName = G.rootName;
   if (G.dirHandle && typeof G.dirHandle.values === 'function'){
@@ -5007,6 +5018,10 @@ $('rescanBtn').addEventListener('click', async ()=>{
   if (keepPath){
     const idx = G.assets.findIndex(a=>a.path === keepPath);
     if (idx >= 0){
+      if (keepUi){                                            // 驗收區的編輯狀態掛在資產上 → 載入前先帶回
+        const na = G.assets[idx];
+        na._stdEditing = keepUi.stdEditing; na._stdPreview = keepUi.stdPreview; na._verEdit = keepUi.verEdit;
+      }
       await selectAsset(idx);
       if (keepCam && G.selected === idx && pvModel){          // 還原鏡頭,避免重掃後視角跳掉
         pvCam.position.copy(keepCam.pos); pvControls.target.copy(keepCam.target); pvControls.update();
@@ -5032,6 +5047,21 @@ $('rescanBtn').addEventListener('click', async ()=>{
           }
           renderAnimList(anims);
         }
+      }
+      if (keepUi && G.selected === idx && pvModel){
+        // 還原選取的面(依網格順序 + 三角形索引;重掃後已不存在的面略過)
+        const meshes = meshesForMaterial(null).filter(m=>!(m.name || '').startsWith('__'));   // 排除輔助覆蓋網格
+        const faces = keepUi.sel.filter(p=>{
+          const g = meshes[p.mi] && meshes[p.mi].geometry; if (!g) return false;
+          const n = g.index ? g.index.count / 3 : (g.attributes.position ? g.attributes.position.count / 3 : 0);
+          return p.tri < n;
+        }).map(p=>({ mesh:meshes[p.mi], tri:p.tri }));
+        if (faces.length) applySel(faces, 'set');
+        if (pvUv.on){                                         // 還原 UV 檢視的縮放 / 平移
+          pvUv.zoom = keepUi.uv.zoom; pvUv.panX = keepUi.uv.panX; pvUv.panY = keepUi.uv.panY;
+          renderUV();
+        }
+        requestAnimationFrame(()=> keepUi.scroll.forEach(([id, top])=>{ if ($(id)) $(id).scrollTop = top; }));   // 版面更新後再還原捲動
       }
     }
   }
