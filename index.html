@@ -2985,6 +2985,8 @@ function initPreview(){
 function makeControls(cam){
   const c = new OrbitControls(cam, $('pvCanvas'));
   c.enableDamping = true; c.dampingFactor = 0.08;
+  // OrbitControls 預設中鍵 = DOLLY(不受 pvWheelZoom 的距離限制,會一下拉到極端位置);中鍵+拖動不應有功能
+  c.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: -1, RIGHT: THREE.MOUSE.PAN };
   c.autoRotate = pvCamState.autoRotate; c.autoRotateSpeed = 1.6;
   return c;
 }
