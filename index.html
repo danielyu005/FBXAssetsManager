@@ -1824,6 +1824,64 @@ function patchDuplicateNames(arrayBuffer){
   return { buffer: arrayBuffer, renames };
 }
 
+/* ── 只 key 部分軸的旋轉動畫 ──
+   DCC 常只輸出有變化的軸(例如只有 X 旋轉)。three r160 的 FBXLoader 必須 X/Y/Z 三軸齊全才產生旋轉軌,
+   否則建出零 keyframe 的 QuaternionKeyframeTrack 直接丟例外 → 整個檔案「FBX 解析失敗」。
+   做法與上游新版一致(放棄該旋轉通道):把這些曲線連線的 "d|X" 原地改成 "d|-"(長度不變、不動位移量),
+   FBXLoader 便不會把曲線掛上去,模型以靜態旋轉載入,其餘動畫照常。 */
+function patchPartialRotationCurves(arrayBuffer){
+  const u8 = new Uint8Array(arrayBuffer);
+  const MAGIC = 'Kaydara FBX Binary';
+  let bin = true;
+  for (let i = 0; i < MAGIC.length; i++) if (u8[i] !== MAGIC.charCodeAt(i)){ bin = false; break; }
+  const curveNodes = new Map(), curves = new Set(), models = new Map(), conns = [];
+  if (bin){
+    const top = fbxBinaryNodes(arrayBuffer);
+    const str = v => (v == null ? '' : String(v)).split('\x00')[0];
+    top.filter(n=>n.name === 'Objects').flatMap(n=>n.children).forEach(n=>{
+      const id = Number(n.props[0]);
+      if (n.name === 'AnimationCurveNode') curveNodes.set(id, str(n.props[1]));
+      else if (n.name === 'AnimationCurve') curves.add(id);
+      else if (n.name === 'Model') models.set(id, str(n.props[1]));
+    });
+    top.filter(n=>n.name === 'Connections').flatMap(n=>n.children).forEach(c=>{
+      if (c.name !== 'C' || str(c.props[0]) !== 'OP') return;
+      const rel = str(c.props[3]);
+      conns.push({ child:Number(c.props[1]), parent:Number(c.props[2]), rel, relOff:c.soffs[3] });
+    });
+  } else {
+    const text = new TextDecoder('latin1').decode(u8);    // 單位元組解碼:字元索引 = 位元組位置
+    let m;
+    const reNode = /AnimationCurveNode:\s*(-?\d+),\s*"AnimCurveNode::([^"]*)"/g;
+    while ((m = reNode.exec(text))) curveNodes.set(Number(m[1]), m[2]);
+    const reCurve = /AnimationCurve:\s*(-?\d+),/g;
+    while ((m = reCurve.exec(text))) curves.add(Number(m[1]));
+    const reModel = /Model:\s*(-?\d+),\s*"Model::([^"]*)"/g;
+    while ((m = reModel.exec(text))) models.set(Number(m[1]), m[2]);
+    const reConn = /C:\s*"OP",\s*(-?\d+),\s*(-?\d+),\s*"([^"]*)"/g;
+    while ((m = reConn.exec(text))) conns.push({ child:Number(m[1]), parent:Number(m[2]), rel:m[3], relOff:m.index + m[0].length - 1 - m[3].length });
+  }
+  const axisOf = rel => (/X/.test(rel) ? 'X' : /Y/.test(rel) ? 'Y' : /Z/.test(rel) ? 'Z' : '');   // 與 FBXLoader 的判定順序相同
+  const byNode = new Map();                          // R 曲線節點 → 掛在其上的曲線連線
+  conns.forEach(c=>{
+    if (!curves.has(c.child) || curveNodes.get(c.parent) !== 'R' || !axisOf(c.rel)) return;
+    if (!byNode.has(c.parent)) byNode.set(c.parent, []);
+    byNode.get(c.parent).push(c);
+  });
+  const patched = [];
+  byNode.forEach((list, nodeId)=>{
+    const axes = [...new Set(list.map(c=>axisOf(c.rel)))].sort();
+    if (axes.length === 3) return;
+    list.forEach(c=>{
+      const i = c.rel.lastIndexOf(axisOf(c.rel));
+      if (c.relOff != null) u8[c.relOff + i] = 45;    // '-'
+    });
+    const owner = conns.find(c=>c.child === nodeId && models.has(c.parent));
+    patched.push({ model: owner ? models.get(owner.parent) : '(未知)', axes: axes.join('') });
+  });
+  return patched;
+}
+
 /* ── FBX 貼圖 UV 組(UVSet)綁定 ──
    FBXLoader 不讀 Texture 的 UVSet 屬性,所有貼圖都會被當成 UV0(texture.channel = 0),
    造成材質面板的 UV ID 與實際綁定不符。這裡自行讀出:
@@ -1883,7 +1941,7 @@ function fbxBinaryNodes(buf){                      // 精簡的二進位 FBX 節
     if (end === 0) return null;
     const nlen = u8[off++];
     const name = dec.decode(u8.subarray(off, off + nlen)); off += nlen;
-    const props = [];
+    const props = [], soffs = [];                   // soffs[i]:字串屬性內容的位元組位置(原地修補用)
     for (let i = 0; i < np; i++){
       const t = String.fromCharCode(u8[off++]);
       switch (t){
@@ -1895,6 +1953,7 @@ function fbxBinaryNodes(buf){                      // 精簡的二進位 FBX 節
         case 'L': props.push(Number(dv.getBigInt64(off,true))); off += 8; break;
         case 'S': case 'R': {
           const len = dv.getUint32(off,true); off += 4;
+          soffs[props.length] = off;
           props.push(t === 'S' ? dec.decode(u8.subarray(off, off + len)) : null); off += len; break;
         }
         case 'f': case 'd': case 'l': case 'i': case 'b':
@@ -1908,7 +1967,7 @@ function fbxBinaryNodes(buf){                      // 精簡的二進位 FBX 節
       if (!c) break;                                  // 子節點列表結尾的 NULL 記錄
       children.push(c.n); off = c.end;
     }
-    return { n:{ name, props, children }, end };
+    return { n:{ name, props, soffs, children }, end };
   }
   const out = [];
   let off = 27;
@@ -1994,6 +2053,10 @@ function loadFBXReady(buf, missSet, diag, assetDir, timeoutMs=15000){
       try{ const r = patchDuplicateNames(buf); diag.renames = r.renames; }   // 載入前修復重複命名
       catch(_){ diag.renames = []; }
     }
+    let partialRot = [];
+    try{ partialRot = patchPartialRotationCurves(buf); }
+    catch(err){ console.warn('部分軸旋轉曲線檢查失敗', err); }
+    if (diag) diag.partialRot = partialRot;
     const m = new THREE.LoadingManager();
     m.addHandler(/\.tga$/i, new TGALoader(m));
     m.addHandler(/\.dds$/i, new DDSLoader(m));            // 外部 DDS 壓縮貼圖
@@ -2174,6 +2237,7 @@ async function buildThumb(asset){
   asset.materialCount = mats.length;
   asset.clips = (model.animations || []).map(c=>({ name:c.name || '', duration:+(c.duration||0).toFixed(3) }));
   asset.renames = diag.renames || [];       // 自動修復的重複命名(交付缺陷紀錄)
+  asset.partialRot = diag.partialRot || [];  // 略過的部分軸旋轉動畫通道
   asset.dupeBones = findDuplicateBoneNames(model);   // 殘留的重複骨骼名(動畫綁定錯亂 → 骨骼錯位)
 
   // 套用已記錄的覆寫,讓縮圖也反映手動貼圖(載入專案後)
@@ -3130,6 +3194,8 @@ async function loadIntoPreview(a){
   a.clips = (model.animations || []).map(c=>({ name:c.name || '', duration:+(c.duration||0).toFixed(3) }));
   a.renames = diag.renames || [];
   if (a.renames.length) toast(`已自動修復 ${a.renames.length} 個重複骨骼命名(交付缺陷,建議回報廠商)`, 3500);
+  a.partialRot = diag.partialRot || [];
+  if (a.partialRot.length) toast(`已略過 ${a.partialRot.length} 個只 key 部分軸的旋轉動畫通道(否則無法載入),該骨骼旋轉不會播放`, 4500);
   a.dupeBones = findDuplicateBoneNames(model);   // 載入後仍殘留的重複骨骼名(動畫綁定錯亂 → 骨骼錯位)
   if (a.dupeBones.length) toast(`⚠ 仍有 ${a.dupeBones.length} 組重複骨骼命名未能修復,動畫可能綁錯骨骼造成錯位`, 4500);
   reviewEvaluate(a);
@@ -3187,8 +3253,10 @@ function setupClips(model, clips){
 }
 function renderAnimList(clips){
   const wrap=$('pvAnimList'); if(!wrap) return;
-  if(!clips || !clips.length){ wrap.innerHTML=`<div class="rv-muted">此模型沒有動畫。</div>`; return; }
-  wrap.innerHTML = clips.map((c,i)=>{
+  const cur = G.selected >= 0 ? G.assets[G.selected] : null;
+  const note = cur ? partialRotHTML(cur) : '';
+  if(!clips || !clips.length){ wrap.innerHTML = note + `<div class="rv-muted">此模型沒有動畫。</div>`; return; }
+  wrap.innerHTML = note + clips.map((c,i)=>{
     const trim=c.__trimStart?`<span class="al-trim">修剪 ${c.__trimStart.toFixed(2)}s</span>`:'';
     return `<div class="al-row${i===pvClipIdx?' on':''}" data-i="${i}">
       <span class="al-play">${i===pvClipIdx && pvPlaying?'▶':'❚❚'}</span>
@@ -3247,10 +3315,17 @@ function repairHTML(a){
     + a.renames.map(r=>`<li>${esc(r.from)} → ${esc(r.to)}</li>`).join('')
     + `</ul><span class="rv-repair-note">這是交付缺陷,正解應請廠商在 DCC 端改名重匯。</span></div>`;
 }
+function partialRotHTML(a){
+  if (!a.partialRot || !a.partialRot.length) return '';
+  return `<div class="rv-repair">🛠 已略過 ${a.partialRot.length} 個只 key 部分軸的旋轉動畫通道(three.js 需 X/Y/Z 三軸齊全,否則整個檔案無法載入),下列節點的旋轉動畫不會播放:<ul>`
+    + a.partialRot.map(p=>`<li>${esc(p.model)}(只有 ${esc(p.axes)} 軸)</li>`).join('')
+    + `</ul><span class="rv-repair-note">建議請廠商匯出時烘焙全部旋轉軸(Bake Animation / 全軸 key)。</span></div>`;
+}
 // 交付缺陷彙整:已修復的重複命名 + 仍殘留的重複骨骼名(骨骼錯位主因)
 function deliveryDefectsHTML(a){
   let html = '';
   if (a.renames && a.renames.length) html += repairHTML(a);
+  html += partialRotHTML(a);
   if (a.dupeBones && a.dupeBones.length){
     html += `<div class="rv-dupe">⚠ 仍有 ${a.dupeBones.length} 組重複骨骼命名未能自動修復,three.js 動畫會綁到第一個同名骨骼 → 造成部分骨骼 scale / position 錯位:<ul>`
       + a.dupeBones.map(d=>`<li>${esc(d.name)} ×${d.count}</li>`).join('')
