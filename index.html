@@ -1810,6 +1810,163 @@ function patchDuplicateNames(arrayBuffer){
   return { buffer: arrayBuffer, renames };
 }
 
+/* ── FBX 貼圖 UV 組(UVSet)綁定 ──
+   FBXLoader 不讀 Texture 的 UVSet 屬性,所有貼圖都會被當成 UV0(texture.channel = 0),
+   造成材質面板的 UV ID 與實際綁定不符。這裡自行讀出:
+   · Texture 節點的 UVSet 名稱(如 "map2"、"UVChannel_2")
+   · Geometry 各 LayerElementUV 的名稱(順序 = three 的 uv / uv1 / uv2…)
+   · Geometry → Model 的連線
+   再以名稱對應出每張貼圖該用的 UV 編號。 */
+function readFbxUvInfo(buf){
+  const u8 = new Uint8Array(buf);
+  const MAGIC = 'Kaydara FBX Binary';
+  let bin = true;
+  for (let i = 0; i < MAGIC.length; i++) if (u8[i] !== MAGIC.charCodeAt(i)){ bin = false; break; }
+  const top = bin ? fbxBinaryNodes(buf) : fbxAsciiNodes(u8);
+  const texUv = new Map(), geoUv = new Map(), geoToModels = new Map();
+  const str = v => (v == null ? '' : String(v)).split('\x00')[0];
+  const objs = top.filter(n=>n.name === 'Objects').flatMap(n=>n.children);
+  objs.forEach(n=>{
+    const id = Number(n.props[0]);
+    if (n.name === 'Texture'){
+      const p70 = n.children.find(c=>c.name === 'Properties70');
+      const p = p70 && p70.children.find(c=>c.name === 'P' && str(c.props[0]) === 'UVSet');
+      const set = p ? str(p.props[4]) : '';
+      if (set) texUv.set(id, set);
+    } else if (n.name === 'Geometry'){
+      const layers = n.children.filter(c=>c.name === 'LayerElementUV')
+        .map(c=>({ idx:Number(c.props[0]) || 0, node:c }));
+      const byIdx = new Map(layers.map(l=>[l.idx, l.node]));
+      const names = [];
+      for (let i = 0; byIdx.has(i); i++){             // 與 FBXLoader 相同:依索引遍歷,略過沒有 UV 資料的層
+        const c = byIdx.get(i);
+        if (!c.children.some(k=>k.name === 'UV')) continue;
+        const nm = c.children.find(k=>k.name === 'Name');
+        names.push(nm ? str(nm.props[0]) : '');
+      }
+      if (names.length) geoUv.set(id, names);
+    }
+  });
+  top.filter(n=>n.name === 'Connections').flatMap(n=>n.children).forEach(c=>{
+    if (c.name !== 'C' || str(c.props[0]) !== 'OO') return;
+    const child = Number(c.props[1]), parent = Number(c.props[2]);
+    if (!geoUv.has(child)) return;
+    if (!geoToModels.has(child)) geoToModels.set(child, []);
+    geoToModels.get(child).push(parent);
+  });
+  const modelUv = new Map();
+  geoToModels.forEach((models, gid)=> models.forEach(mid=> modelUv.set(mid, geoUv.get(gid))));
+  return { texUv, modelUv };
+}
+function fbxBinaryNodes(buf){                      // 精簡的二進位 FBX 節點樹(陣列屬性只跳過,不解碼)
+  const dv = new DataView(buf), u8 = new Uint8Array(buf);
+  const big = dv.getUint32(23, true) >= 7500;
+  const dec = new TextDecoder();
+  function node(off){
+    let end, np;
+    if (big){ end = Number(dv.getBigUint64(off,true)); np = Number(dv.getBigUint64(off+8,true)); off += 24; }
+    else    { end = dv.getUint32(off,true);            np = dv.getUint32(off+4,true);           off += 12; }
+    if (end === 0) return null;
+    const nlen = u8[off++];
+    const name = dec.decode(u8.subarray(off, off + nlen)); off += nlen;
+    const props = [];
+    for (let i = 0; i < np; i++){
+      const t = String.fromCharCode(u8[off++]);
+      switch (t){
+        case 'Y': props.push(dv.getInt16(off,true)); off += 2; break;
+        case 'C': props.push(u8[off] !== 0); off += 1; break;
+        case 'I': props.push(dv.getInt32(off,true)); off += 4; break;
+        case 'F': props.push(dv.getFloat32(off,true)); off += 4; break;
+        case 'D': props.push(dv.getFloat64(off,true)); off += 8; break;
+        case 'L': props.push(Number(dv.getBigInt64(off,true))); off += 8; break;
+        case 'S': case 'R': {
+          const len = dv.getUint32(off,true); off += 4;
+          props.push(t === 'S' ? dec.decode(u8.subarray(off, off + len)) : null); off += len; break;
+        }
+        case 'f': case 'd': case 'l': case 'i': case 'b':
+          props.push(null); off += 12 + dv.getUint32(off+8,true); break;
+        default: throw new Error('FBX 屬性型別不明:' + t);
+      }
+    }
+    const children = [];
+    while (off < end){
+      const c = node(off);
+      if (!c) break;                                  // 子節點列表結尾的 NULL 記錄
+      children.push(c.n); off = c.end;
+    }
+    return { n:{ name, props, children }, end };
+  }
+  const out = [];
+  let off = 27;
+  while (off < u8.length){
+    const r = node(off);
+    if (!r) break;
+    if (r.n.name === 'Objects' || r.n.name === 'Connections') out.push(r.n);
+    off = r.end;
+  }
+  return out;
+}
+function fbxAsciiNodes(u8){                        // 精簡的 ASCII FBX 節點樹(只認「Key: 值」與大括號層級)
+  const text = new TextDecoder().decode(u8);
+  const root = { name:'', props:[], children:[] }, stack = [root];
+  const parseVals = s => {
+    const out = []; let cur = '', q = false;
+    for (const ch of s){
+      if (ch === '"'){ q = !q; continue; }
+      if (ch === ',' && !q){ out.push(cur.trim()); cur = ''; continue; }
+      cur += ch;
+    }
+    if (cur.trim() !== '') out.push(cur.trim());
+    return out;
+  };
+  for (const raw of text.split(/\r?\n/)){
+    const line = raw.trim();
+    if (!line || line[0] === ';') continue;
+    if (line[0] === '}'){ if (stack.length > 1) stack.pop(); continue; }
+    const m = /^([A-Za-z0-9_|]+):\s*(.*?)\s*(\{)?$/.exec(line);
+    if (!m) continue;                                 // 陣列續行等
+    const n = { name:m[1], props:parseVals(m[2]), children:[] };
+    stack[stack.length - 1].children.push(n);
+    if (m[3]) stack.push(n);
+  }
+  return root.children;
+}
+function bindFbxUvSets(root, info){                // 依 UVSet 名稱設定 texture.channel,並記錄 UV 組名稱
+  if (!root || !info) return;
+  const votes = new Map();                          // tex.uuid → { tex, set, cnt:{ channel:次數 } }
+  root.traverse(o=>{
+    if (!o.isMesh || !o.geometry) return;
+    const names = info.modelUv.get(Number(o.ID));
+    if (!names) return;
+    o.geometry.userData.uvNames = names;
+    const mats = Array.isArray(o.material) ? o.material : [o.material];
+    mats.forEach(mat=>{
+      if (!mat) return;
+      TEX_SLOTS.forEach(s=>{
+        const t = mat[s.key]; if (!t || !t.isTexture || t.ID == null) return;
+        const set = info.texUv.get(Number(t.ID)); if (!set) return;
+        const ch = names.indexOf(set); if (ch < 0) return;   // 名稱對不上 → 維持 UV0
+        if (!votes.has(t.uuid)) votes.set(t.uuid, { tex:t, set, cnt:{} });
+        const v = votes.get(t.uuid); v.cnt[ch] = (v.cnt[ch] || 0) + 1;
+      });
+    });
+  });
+  votes.forEach(({ tex, set, cnt })=>{
+    const ch = +Object.keys(cnt).sort((a,b)=>cnt[b]-cnt[a])[0];
+    tex.userData.uvSet = set;
+    if (ch >= 0 && ch <= 3 && (tex.channel | 0) !== ch){ tex.channel = ch; tex.needsUpdate = true; }
+  });
+  root.traverse(o=>{                                 // 材質的預設 UV ID = 其貼圖所綁定的 UV 組(底圖優先)
+    if (!o.isMesh) return;
+    (Array.isArray(o.material) ? o.material : [o.material]).forEach(mat=>{
+      if (!mat) return;
+      const t = [mat.map, ...TEX_SLOTS.map(s=>mat[s.key])].find(t=>t && t.isTexture);
+      mat.userData.fbxUv = t ? (t.channel | 0) : 0;
+      mat.needsUpdate = true;
+    });
+  });
+}
+
 /* 載入 FBX 並等待所有貼圖實際載完（parse 同步回傳,但貼圖是非同步） */
 function loadFBXReady(buf, missSet, diag, assetDir, timeoutMs=15000){
   return new Promise((resolve, reject)=>{
@@ -1835,6 +1992,8 @@ function loadFBXReady(buf, missSet, diag, assetDir, timeoutMs=15000){
     };
     try { model = new FBXLoader(m).parse(buf, ''); }
     catch(err){ return reject(err); }
+    try { bindFbxUvSets(model, readFbxUvInfo(buf)); }            // 補上 FBXLoader 忽略的貼圖 UVSet 綁定
+    catch(err){ console.warn('UVSet 解析失敗', err); }
     normalizeClips(model);                                       // 修剪每段動畫前置的空白(時間原點偏移)
     Promise.resolve().then(()=>{ if (!started) finish(); });   // 沒有任何外部資源 → 立即完成
     timer = setTimeout(finish, timeoutMs);                       // 安全逾時,避免卡死佇列
@@ -3540,6 +3699,7 @@ texInput.addEventListener('change', async ()=>{
     const data = await readAsDataURL(file);             // 內嵌存檔用
     const tex = await makeTextureFromData(data, ext, cs);
     if (mat[slot] && mat[slot].isTexture) mat[slot].dispose();
+    inheritUv(mat, tex);
     mat[slot] = tex;
     if (slot === 'alphaMap'){ mat.transparent = true; }
     mat.needsUpdate = true;
@@ -3592,6 +3752,7 @@ async function applyTexToSlot(mi, slot, cs, tex){
   try{
     const t = await makeTextureFromData(tex.url, tex.ext, cs);   // 直接用資料夾內的 blob URL 顯示
     if (mat[slot] && mat[slot].isTexture) mat[slot].dispose();
+    inheritUv(mat, t);
     mat[slot] = t;
     if (slot === 'alphaMap'){ mat.transparent = true; }
     mat.needsUpdate = true;
@@ -3655,6 +3816,7 @@ async function applyOverrides(mats, overrides){
       try{
         const tex = await makeTextureFromData(src, e.ext, e.cs);
         if (mat[slot] && mat[slot].isTexture) mat[slot].dispose();
+        inheritUv(mat, tex);
         mat[slot] = tex;
         if (slot === 'alphaMap') mat.transparent = true;
         mat.needsUpdate = true;
@@ -3700,13 +3862,19 @@ function shaderOf(mat){
   return null;                                     // 其他類型(Lambert 等)→ 顯示為「原始」
 }
 const colorHex = (c, fb) => '#' + (c && c.isColor ? c.getHexString() : fb);
+// FBX 檔內貼圖實際綁定的 UV 組(載入時由 UVSet 解析;沒有資訊時退回底圖目前的 channel)
+const detectedUv = mat => (mat && mat.userData && mat.userData.fbxUv != null)
+  ? (mat.userData.fbxUv | 0) : ((mat && mat.map) ? (mat.map.channel | 0) : 0);
+function inheritUv(mat, tex){                      // 新指派的貼圖沿用材質的 UV 組(有 shaderCfg 時由 applyShaderParams 處理)
+  if (tex && !(mat.userData && mat.userData.shaderCfg)) tex.channel = detectedUv(mat);
+}
 function defaultShaderCfg(mat){                    // 由材質目前狀態推得預設參數
   const t = mat && mat.map;
   return {
     shader: shaderOf(mat) || 'standard',
     tiling: [t ? t.repeat.x : 1, t ? t.repeat.y : 1],
     offset: [t ? t.offset.x : 0, t ? t.offset.y : 0],
-    uv: t ? (t.channel | 0) : 0,
+    uv: detectedUv(mat),
     tint: colorHex(mat && mat.color, 'ffffff'),
     specular: colorHex(mat && mat.specular, '111111'),
     shininess: (mat && mat.shininess != null) ? mat.shininess : 30,
@@ -3750,6 +3918,7 @@ function convertMaterial(root, mats, mi, shader){  // 切換材質的著色器(�
   });
   for (const k in stash){ if ((k in dst) && !dst[k]){ dst[k] = stash[k]; delete stash[k]; } }
   dst.userData._texStash = stash;
+  if (src.userData && src.userData.fbxUv != null) dst.userData.fbxUv = src.userData.fbxUv;
   ['transparent','opacity','alphaTest','side','vertexColors','wireframe','aoMapIntensity','depthWrite']
     .forEach(k=>{ if ((k in src) && (k in dst)) dst[k] = src[k]; });
   if (src.normalScale && dst.normalScale) dst.normalScale.copy(src.normalScale);
@@ -3780,6 +3949,7 @@ function applySavedShaders(root, mats, shaders){   // 載入時套回已保存�
     if (!mats[mi] || !cfg || !SHADERS[cfg.shader]) continue;
     convertMaterial(root, mats, mi, cfg.shader);
     mats[mi].userData.shaderCfg = { ...cfg };
+    if (cfg.uv == null) mats[mi].userData.shaderCfg.uv = detectedUv(mats[mi]);   // 重新掃描後:UV ID 依檔案重新判定
     applyShaderParams(mats[mi], mats);
   }
 }
@@ -3796,10 +3966,15 @@ function afterShaderChange(){                      // 讓其他視圖反映材�
 }
 function shaderPanelHTML(mat, mi){
   const c = getShaderCfg(mat), sh = shaderOf(mat) || 'standard';
-  const keys = new Set();
-  meshesForMaterial(mat).forEach(m=> uvKeysOf(m.geometry).forEach(k=> keys.add(k)));
+  const keys = new Set(), setNames = {};
+  meshesForMaterial(mat).forEach(m=> uvKeysOf(m.geometry).forEach(k=>{
+    keys.add(k);
+    const nm = ((m.geometry.userData || {}).uvNames || [])[uvIndexOf(k)];
+    if (nm && !setNames[k]) setNames[k] = nm;          // FBX 內的 UV 組名稱(如 map1 / UVChannel_1)
+  }));
   const ids = [...keys].map(uvIndexOf).sort((a,b)=>a-b);
   if (!ids.includes(c.uv | 0)) ids.push(c.uv | 0);
+  const det = detectedUv(mat);
   const num = (f, v, step) => `<input type="number" data-f="${f}" step="${step}" value="${+(+v).toFixed(4)}">`;
   const col = (f, v) => `<input type="color" data-f="${f}" value="${v}"><span class="shhex" data-hex="${f}">${v.toUpperCase()}</span>`;
   let h = `<div class="shpanel" data-mi="${mi}">
@@ -3807,7 +3982,8 @@ function shaderPanelHTML(mat, mi){
     <span class="shk">Tiling</span><span class="shv"><span class="ax">X</span>${num('tx', c.tiling[0], 0.1)}<span class="ax">Y</span>${num('ty', c.tiling[1], 0.1)}</span>
     <span class="shk">Offset</span><span class="shv"><span class="ax">X</span>${num('ox', c.offset[0], 0.01)}<span class="ax">Y</span>${num('oy', c.offset[1], 0.01)}</span>
     <span class="shk">UV ID</span><span class="shv"><select data-f="uv" title="貼圖取樣使用哪一組 UV">${
-      ids.map(i=>`<option value="${i}" ${i===(c.uv|0)?'selected':''}>UV${i}${keys.has(i?'uv'+i:'uv')?'':'(網格無此組)'}</option>`).join('')}</select></span>
+      ids.map(i=>{ const k = i ? 'uv'+i : 'uv';
+        return `<option value="${i}" ${i===(c.uv|0)?'selected':''}>UV${i}${setNames[k]?' · '+esc(setNames[k]):''}${keys.has(k)?'':'(網格無此組)'}${i===det?'(檔案綁定)':''}</option>`; }).join('')}</select></span>
     <span class="shk">Tint Color</span><span class="shv">${col('tint', c.tint)}</span>`;
   if (sh === 'standard'){
     h += `<div class="shsec">Specular</div>
@@ -3869,7 +4045,7 @@ function bindShaderUI(wrap){
     if (rs) rs.addEventListener('click', ()=>{
       const mat = pvMaterials[mi]; if (!mat) return;
       const sh = shaderOf(mat) || 'standard';
-      mat.userData.shaderCfg = { shader:sh, tiling:[1,1], offset:[0,0], uv:0, tint:'#ffffff', specular:'#111111', shininess:30 };
+      mat.userData.shaderCfg = { shader:sh, tiling:[1,1], offset:[0,0], uv:detectedUv(mat), tint:'#ffffff', specular:'#111111', shininess:30 };
       applyShaderParams(mat, pvMaterials);
       saveShaderCfg(mi);
       afterShaderChange();
@@ -4758,6 +4934,13 @@ $('pickBtn2').addEventListener('click', ()=>pickDirectory().catch(e=>toast('開�
 $('rescanBtn').addEventListener('click', async ()=>{
   if (!G.entries.length && !G.dirHandle) return;
   const snapshot = collectProjectData().assets;          // 擷取目前狀態(覆寫/備註/驗收/軸向)
+  // UV ID 一律依檔案重新抓取:拿掉已保存的 uv,載入時由 FBX 的 UVSet 重新判定
+  Object.values(snapshot || {}).forEach(rec=>{       // 複製後再刪,不動到目前資產的設定
+    if (!rec || !rec.shaders) return;
+    const shd = {};
+    for (const mi in rec.shaders){ const { uv, ...rest } = rec.shaders[mi] || {}; shd[mi] = rest; }
+    rec.shaders = shd;
+  });
   const source = G.source;
   const adopt = G.curProjId ? { id:G.curProjId, name:G.curProjName } : null;
   // 本機資料夾:用 handle 真正重讀磁碟(可抓到新增/更動的檔);其他來源沿用既有 entries
