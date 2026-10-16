@@ -4053,6 +4053,8 @@ function bindShaderUI(wrap){
       if (uvChanged){ if ((c.uv | 0) === detectedUv(mat)) delete c.uvUser; else c.uvUser = true; }   // 與檔案不同 → 視為手動指定
       mat.userData.shaderCfg = c;
       applyShaderParams(mat, pvMaterials);
+      // 無光照顯示時 3D 視窗用的是派生材質(拷貝顏色、可能引用舊貼圖、不會跟著重新編譯)→ 立即重建
+      if (pvModel && !pvDisp.lit && pvDisp.renderMode === 'std') applyMeshMode();
       if (commit){
         saveShaderCfg(mi);
         if (uvChanged){
