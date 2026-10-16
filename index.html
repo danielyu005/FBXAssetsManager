@@ -2082,7 +2082,7 @@ function frameToCamera(obj, cam, fill=1.5, dir=null){
   const size = box.getSize(new THREE.Vector3());
   const center = box.getCenter(new THREE.Vector3());
   const maxDim = Math.max(size.x, size.y, size.z) || 1;
-  const fov = cam.fov * Math.PI/180;
+  const fov = (cam.isPerspectiveCamera ? cam.fov : pvCamState.fov) * Math.PI/180;   // 正交相機沒有 fov → 用設定值算距離
   let dist = (maxDim/2) / Math.tan(fov/2) * fill;
   const d = dir || new THREE.Vector3(0.55, 0.32, 1).normalize();
   cam.position.copy(center).addScaledVector(d, dist);
@@ -4982,7 +4982,9 @@ $('rescanBtn').addEventListener('click', async ()=>{
   // 記住目前預覽中的資產與鏡頭,重掃後重新載入 → Viewport 與 Inspector 同步更新
   const cur = (G.selected >= 0 && $('preview').classList.contains('open')) ? G.assets[G.selected] : null;
   const keepPath = cur ? cur.path : null;
-  const keepCam = (cur && pvCam && pvControls) ? { pos:pvCam.position.clone(), target:pvControls.target.clone() } : null;
+  const keepCam = (cur && pvCam && pvControls) ? { pos:pvCam.position.clone(), target:pvControls.target.clone(),
+    ortho:!!pvCam.isOrthographicCamera, zoom:pvCam.zoom, near:pvCam.near, far:pvCam.far,          // 縮放(透視=距離;正交=zoom)
+    frustum: pvCam.isOrthographicCamera ? [pvCam.left, pvCam.right, pvCam.top, pvCam.bottom] : null } : null;
   // 記住目前播放中的動畫 clip(依名稱比對;重掃後不存在則維持預設:播放第一個 clip)
   const curClip = (cur && pvModel && pvModel.animations) ? pvModel.animations[pvClipIdx] : null;
   const keepClip = curClip ? { name:curClip.name || '', idx:pvClipIdx,
@@ -5024,7 +5026,13 @@ $('rescanBtn').addEventListener('click', async ()=>{
       }
       await selectAsset(idx);
       if (keepCam && G.selected === idx && pvModel){          // 還原鏡頭,避免重掃後視角跳掉
-        pvCam.position.copy(keepCam.pos); pvControls.target.copy(keepCam.target); pvControls.update();
+        pvCam.position.copy(keepCam.pos); pvControls.target.copy(keepCam.target);
+        if (!!pvCam.isOrthographicCamera === keepCam.ortho){            // 同一種投影才還原縮放 / 裁切面
+          pvCam.zoom = keepCam.zoom; pvCam.near = keepCam.near; pvCam.far = keepCam.far;
+          if (keepCam.frustum) [pvCam.left, pvCam.right, pvCam.top, pvCam.bottom] = keepCam.frustum;
+          pvCam.updateProjectionMatrix();
+        }
+        pvControls.update();
       }
       if (keepClip && G.selected === idx && pvModel && pvMixer){
         const anims = pvModel.animations || [];
