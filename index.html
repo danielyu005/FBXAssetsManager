@@ -4970,11 +4970,15 @@ $('pickBtn2').addEventListener('click', ()=>pickDirectory().catch(e=>toast('開�
 $('rescanBtn').addEventListener('click', async ()=>{
   if (!G.entries.length && !G.dirHandle) return;
   const snapshot = collectProjectData().assets;          // 擷取目前狀態(覆寫/備註/驗收/軸向)
-  // UV ID 一律依檔案重新抓取:拿掉已保存的 uv,載入時由 FBX 的 UVSet 重新判定
+  // UV ID:使用者手動指定的(uvUser)保留;其餘拿掉 uv,載入時由 FBX 的 UVSet 重新判定
   Object.values(snapshot || {}).forEach(rec=>{       // 複製後再刪,不動到目前資產的設定
     if (!rec || !rec.shaders) return;
     const shd = {};
-    for (const mi in rec.shaders){ const { uv, uvUser, ...rest } = rec.shaders[mi] || {}; shd[mi] = rest; }
+    for (const mi in rec.shaders){
+      const cfg = rec.shaders[mi] || {};
+      if (cfg.uvUser && cfg.uv != null){ shd[mi] = { ...cfg }; continue; }
+      const { uv, uvUser, ...rest } = cfg; shd[mi] = rest;
+    }
     rec.shaders = shd;
   });
   const source = G.source;
