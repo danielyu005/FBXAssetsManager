@@ -34,7 +34,17 @@
     padding:0 16px; height:48px; background:var(--panel);
     border-bottom:1px solid var(--line);
   }
-  #top .brand{ display:flex; align-items:center; gap:9px; font-weight:600; }
+  #top .brand{ display:flex; align-items:center; gap:9px; font-weight:600; white-space:nowrap; flex-shrink:0; }
+  #top .tbtn, #top .zoomctl{ flex-shrink:0; }
+  .proj-label{ min-width:0; }
+  /* 視窗變窄時依序收合次要文字,避免品牌名被擠成多行、右側按鈕被裁掉 */
+  @media (max-width:1150px){
+    #top{ gap:8px; padding:0 10px; }
+    #folderBtn .lbl, .zoomctl .zlabel{ display:none; }
+  }
+  @media (max-width:860px){
+    #top .brand .bname{ display:none; }
+  }
   #top .dot{ width:11px; height:11px; border-radius:3px; background:var(--accent); }
   #top .sub{ color:var(--muted); font-size:11.5px; }
   .spacer{ flex:1 1 auto; }
@@ -758,13 +768,13 @@
 <body>
 
 <div id="top">
-  <div class="brand"><span class="dot"></span>FBX 資產管理器</div>
+  <div class="brand" title="FBX 資產管理器"><span class="dot"></span><span class="bname">FBX 資產管理器</span></div>
   <button class="tbtn primary" id="pickBtn">選擇資料夾</button>
   <button class="tbtn" id="ghBtn" title="從 GitHub Releases 載入素材">GitHub</button>
   <button class="tbtn" id="rescanBtn" disabled>重新掃描</button>
   <button class="tbtn" id="folderBtn" title="預覽檔案資料夾(於 App 內瀏覽載入的資料夾樹)" disabled>
     <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" style="vertical-align:-2px"><path d="M1.8 4.2h4l1.3 1.5H14.2v7H1.8z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>
-    預覽檔案資料夾</button>
+    <span class="lbl">預覽檔案資料夾</span></button>
   <span id="curProjLabel" class="proj-label"></span>
   <div class="spacer"></div>
   <span class="zoomctl" title="調整整體介面大小">
@@ -1631,6 +1641,8 @@ async function ghLoadSelected(){
 }
 
 /* ───────── 貼圖重導 LoadingManager ───────── */
+// 未配對 / 不支援的貼圖改指向這個無法解碼的 data URL:結果同樣是載入失敗,但不會對網站根目錄發出 404 請求
+const UNRESOLVED_TEX_URL = 'data:image/png;base64,';
 function urlModifier(missSet, diag, assetDir){
   return url=>{
     if (/^(blob:|data:)/i.test(url)){                    // 內嵌貼圖,原樣放行
@@ -1648,7 +1660,7 @@ function urlModifier(missSet, diag, assetDir){
       item.status = 'unsupported';
       if (missSet) missSet.add(base);
       if (diag) diag.items.push(item);
-      return url;
+      return UNRESOLVED_TEX_URL;
     }
     const hit = G.fileIndex.byTail.get(tail) || resolveByName(base, assetDir);
     if (hit){
@@ -1659,7 +1671,7 @@ function urlModifier(missSet, diag, assetDir){
     item.status = 'notfound';
     if (missSet) missSet.add(base);
     if (diag) diag.items.push(item);
-    return url;                                           // 找不到 → 原樣（會載入失敗,但已記錄）
+    return UNRESOLVED_TEX_URL;                            // 找不到 → 視同載入失敗(已記錄)
   };
 }
 
@@ -2003,8 +2015,31 @@ function loadFBXReady(buf, missSet, diag, assetDir, timeoutMs=15000){
     try { bindFbxUvSets(model, readFbxUvInfo(buf)); }            // 補上 FBXLoader 忽略的貼圖 UVSet 綁定
     catch(err){ console.warn('UVSet 解析失敗', err); }
     normalizeClips(model);                                       // 修剪每段動畫前置的空白(時間原點偏移)
+    repairMorphTargets(model);
     Promise.resolve().then(()=>{ if (!started) finish(); });   // 沒有任何外部資源 → 立即完成
     timer = setTimeout(finish, timeoutMs);                       // 安全逾時,避免卡死佇列
+  });
+}
+/* FBXLoader 對部分 BlendShape 會產生長度與頂點數不符(常為空)的 morph 屬性,
+   computeBoundingBox / Sphere 讀到越界值 → NaN,導致縮圖 / 對焦 / 尺寸全部失效。
+   以「無位移」補齊(相對模式補 0,絕對模式補原始頂點),保留索引讓動畫軌照常綁定。 */
+function repairMorphTargets(root){
+  root.traverse(o=>{
+    const g = o.isMesh && o.geometry;
+    if (!g || !g.attributes.position) return;
+    const pos = g.attributes.position;
+    for (const key in g.morphAttributes){
+      const base = g.attributes[key];
+      if (!base) continue;
+      g.morphAttributes[key] = g.morphAttributes[key].map(a=>{
+        if (a.count === base.count && a.itemSize === base.itemSize) return a;
+        const arr = g.morphTargetsRelative ? new Float32Array(base.array.length) : Float32Array.from(base.array);
+        const fixed = new THREE.Float32BufferAttribute(arr, base.itemSize);
+        fixed.name = a.name;
+        return fixed;
+      });
+    }
+    if (pos.count) { g.computeBoundingBox(); g.computeBoundingSphere(); }
   });
 }
 /* FBX take 常不從時間 0 開始,造成 clip 前段定格(空白幀)。
