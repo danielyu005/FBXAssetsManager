@@ -4983,6 +4983,9 @@ $('rescanBtn').addEventListener('click', async ()=>{
   const cur = (G.selected >= 0 && $('preview').classList.contains('open')) ? G.assets[G.selected] : null;
   const keepPath = cur ? cur.path : null;
   const keepCam = (cur && pvCam && pvControls) ? { pos:pvCam.position.clone(), target:pvControls.target.clone() } : null;
+  // 記住目前播放中的動畫 clip(依名稱比對;重掃後不存在則維持預設:播放第一個 clip)
+  const curClip = (cur && pvModel && pvModel.animations) ? pvModel.animations[pvClipIdx] : null;
+  const keepClip = curClip ? { name:curClip.name || '', idx:pvClipIdx } : null;
   // 本機資料夾:用 handle 真正重讀磁碟(可抓到新增/更動的檔);其他來源沿用既有 entries
   let entries = G.entries, rootName = G.rootName;
   if (G.dirHandle && typeof G.dirHandle.values === 'function'){
@@ -5006,6 +5009,12 @@ $('rescanBtn').addEventListener('click', async ()=>{
       await selectAsset(idx);
       if (keepCam && G.selected === idx && pvModel){          // 還原鏡頭,避免重掃後視角跳掉
         pvCam.position.copy(keepCam.pos); pvControls.target.copy(keepCam.target); pvControls.update();
+      }
+      if (keepClip && G.selected === idx && pvModel && pvMixer){
+        const anims = pvModel.animations || [];
+        let ci = (anims[keepClip.idx] && (anims[keepClip.idx].name || '') === keepClip.name) ? keepClip.idx
+               : anims.findIndex(c=>(c.name || '') === keepClip.name);
+        if (ci > 0){ playClipIndex(ci); $('pvClip').value = String(ci); }   // 找不到(-1)或本來就是第一個 → 沿用預設
       }
     }
   }
