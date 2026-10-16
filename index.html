@@ -4985,7 +4985,8 @@ $('rescanBtn').addEventListener('click', async ()=>{
   const keepCam = (cur && pvCam && pvControls) ? { pos:pvCam.position.clone(), target:pvControls.target.clone() } : null;
   // 記住目前播放中的動畫 clip(依名稱比對;重掃後不存在則維持預設:播放第一個 clip)
   const curClip = (cur && pvModel && pvModel.animations) ? pvModel.animations[pvClipIdx] : null;
-  const keepClip = curClip ? { name:curClip.name || '', idx:pvClipIdx } : null;
+  const keepClip = curClip ? { name:curClip.name || '', idx:pvClipIdx,
+    time: pvCurAction ? pvCurAction.time : 0, playing: pvPlaying } : null;   // 連同播放時間點與暫停狀態
   // 本機資料夾:用 handle 真正重讀磁碟(可抓到新增/更動的檔);其他來源沿用既有 entries
   let entries = G.entries, rootName = G.rootName;
   if (G.dirHandle && typeof G.dirHandle.values === 'function'){
@@ -5014,7 +5015,23 @@ $('rescanBtn').addEventListener('click', async ()=>{
         const anims = pvModel.animations || [];
         let ci = (anims[keepClip.idx] && (anims[keepClip.idx].name || '') === keepClip.name) ? keepClip.idx
                : anims.findIndex(c=>(c.name || '') === keepClip.name);
-        if (ci > 0){ playClipIndex(ci); $('pvClip').value = String(ci); }   // 找不到(-1)或本來就是第一個 → 沿用預設
+        if (ci >= 0){                                          // 找不到(-1) → 沿用預設:從頭播放第一個 clip
+          playClipIndex(ci); $('pvClip').value = String(ci);
+          // 直接切到原 clip(不淡入淡出),跳到原時間點並還原暫停狀態
+          const clip = anims[ci], act = pvMixer.clipAction(clip);
+          pvMixer.stopAllAction();
+          act.reset(); act.setLoop(THREE.LoopRepeat, Infinity); act.play();
+          act.time = Math.min(Math.max(keepClip.time || 0, 0), clip.duration || 0);
+          pvCurAction = act;
+          pvMixer.update(0);                                   // 立刻套用該時間點姿勢
+          pvPlaying = keepClip.playing;
+          $('pvPlay').textContent = pvPlaying ? '❚❚' : '▶';
+          if (pvSeekEl){
+            pvSeekEl.value = act.time;
+            pvTimeEl.textContent = act.time.toFixed(2) + ' / ' + (clip.duration || 0).toFixed(2) + 's';
+          }
+          renderAnimList(anims);
+        }
       }
     }
   }
